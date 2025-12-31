@@ -109,6 +109,53 @@ canvas {
   transform: scale(0.95);
 }
 
+.sound-toggle-button {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+  background-color: rgba(0, 0, 0, 0.5);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.3s;
+  font-weight: normal;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  z-index: 2000;
+}
+
+.sound-toggle-button:hover {
+  background-color: rgba(0, 0, 0, 0.7);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.sound-toggle-button:active {
+  transform: scale(0.95);
+}
+
+.sound-toggle-button.muted {
+  background-color: rgba(100, 0, 0, 0.5);
+  border-color: rgba(255, 0, 0, 0.3);
+}
+
+.sound-icon {
+  font-size: 1.2rem;
+  width: 1.2rem;
+  height: 1.2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sound-text {
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+}
+
 #scoreDisplay {
   font-size: 2rem;
   margin: 2rem 0;

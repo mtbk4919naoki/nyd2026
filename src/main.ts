@@ -94,6 +94,9 @@ horseSound.volume = 0.3 // 音量を控えめに
 const arrowSound = new Audio(`${baseUrl}VSQSE_0381_Japanese_arrow_02.mp3`)
 arrowSound.volume = 0.7
 
+// 音声のオン/オフ状態
+let soundEnabled = true
+
 // 矢の効果音の前半と後半の時間を取得（後で設定）
 let arrowSoundDuration = 0
 // 発射音の終了位置（秒）- 前半のみ再生
@@ -872,7 +875,7 @@ function releaseArrow(releaseX?: number, releaseY?: number) {
   }
   
   // 矢の発射音（前半のみ再生）
-  if (arrowSoundDuration > 0) {
+  if (arrowSoundDuration > 0 && soundEnabled) {
     const arrowSoundClone = arrowSound.cloneNode() as HTMLAudioElement
     arrowSoundClone.volume = arrowSound.volume
     arrowSoundClone.currentTime = 0
@@ -1036,7 +1039,7 @@ function animate() {
     gameTime += deltaTime // ゲーム時間を更新
     
     // 馬の足音を再生（まだ再生されていない場合）
-    if (horseSound.paused && gameStarted) {
+    if (horseSound.paused && gameStarted && soundEnabled) {
       horseSound.play().catch(e => console.log('音声再生エラー:', e))
     }
   } else {
@@ -1159,7 +1162,7 @@ function animate() {
         ;(target as any).hitRings = hitRings
         
         // 命中音（後半を再生）- 命中した時のみ再生
-        if (arrowSoundDuration > 0) {
+        if (arrowSoundDuration > 0 && soundEnabled) {
           const hitSound = arrowSound.cloneNode() as HTMLAudioElement
           hitSound.volume = arrowSound.volume
           // 手動で設定した開始位置から再生
@@ -1308,6 +1311,7 @@ const startScreen = document.getElementById('startScreen')!
 const endScreen = document.getElementById('endScreen')!
 const startButton = document.getElementById('startButton')!
 const restartButton = document.getElementById('restartButton')!
+const soundToggleButton = document.getElementById('soundToggleButton')!
 const scoreValue = document.getElementById('scoreValue')!
 const fortuneDisplay = document.getElementById('fortuneDisplay')!
 
@@ -1418,6 +1422,27 @@ function restartGame() {
   horseSound.pause()
   horseSound.currentTime = 0
 }
+
+// 音声トグルボタンのイベント
+const soundIcon = soundToggleButton.querySelector('.sound-icon')!
+const soundText = soundToggleButton.querySelector('.sound-text')!
+
+soundToggleButton.addEventListener('click', () => {
+  soundEnabled = !soundEnabled
+  if (soundEnabled) {
+    soundIcon.textContent = 'volume_up'
+    soundText.textContent = 'SOUND ON'
+    soundToggleButton.classList.remove('muted')
+  } else {
+    soundIcon.textContent = 'volume_off'
+    soundText.textContent = 'SOUND OFF'
+    soundToggleButton.classList.add('muted')
+    // 音声を停止
+    if (!horseSound.paused) {
+      horseSound.pause()
+    }
+  }
+})
 
 // ボタンイベント
 startButton.addEventListener('click', startGame)

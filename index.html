@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="./vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <title>流鏑馬ゲーム - Yabusame Game</title>
   </head>
   <body>
@@ -30,6 +31,12 @@
         <button id="startButton" class="game-button">ゲームスタート</button>
       </div>
     </div>
+    
+    <!-- 音声トグルボタン（右上固定） -->
+    <button id="soundToggleButton" class="sound-toggle-button">
+      <span class="material-icons sound-icon">volume_up</span>
+      <span class="sound-text">SOUND ON</span>
+    </button>
     
     <!-- 終了画面 -->
     <div id="endScreen" class="screen-overlay" style="display: none;">
