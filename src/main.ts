@@ -877,88 +877,37 @@ function animate() {
       const innerRadius = targetRadius * 0.5 // 中央部分の半径（的の50%）
       
       if (distance < targetRadius + 0.1) {
-        // 的に当たった
         arrow.isStopped = true
         arrow.hitTarget = target
         
-        // デバッグログ：衝突時の情報
-        console.log('=== 矢の命中デバッグ ===')
-        console.log('矢の位置（衝突時）:', arrow.position.clone())
-        console.log('的の中心位置:', targetPosition.clone())
-        console.log('距離:', distance)
-        console.log('的の半径:', targetRadius)
-        
-        // 矢を実際の命中位置に配置（的の表面に正確に配置）
-        // 的の中心から矢の位置への方向ベクトルを計算
         const hitDirection = arrow.position.clone().sub(targetPosition)
         const hitDistance = hitDirection.length()
-        console.log('hitDirection（正規化前）:', hitDirection.clone())
-        console.log('hitDistance:', hitDistance)
         
-        // 矢を実際の衝突位置に配置（的の表面に正確に配置）
         let hitWorldPosition: THREE.Vector3
         if (hitDistance > 0) {
           hitDirection.normalize()
-          console.log('hitDirection（正規化後）:', hitDirection.clone())
-          // 的の板の厚みを考慮
-          const boardThickness = 0.05 // 的の板の厚み
-          
-          // 矢の実際の衝突位置を的の表面に合わせる
-          // 矢が的の半径より内側に当たっている場合、実際の衝突位置を使用
-          // 矢が的の半径より外側に当たっている場合、的の表面に合わせる
+          const boardThickness = 0.05
           const actualHitDistance = Math.min(hitDistance, targetRadius)
-          
-          // 矢を的の板の表面（前面）に配置する
-          // 板の中心から板の表面までの距離は、板の厚みの半分（0.025m）
-          // 矢の実際の衝突位置を板の表面に合わせるため、actualHitDistanceから板の厚みの半分を引く
           const surfaceOffset = hitDirection.multiplyScalar(actualHitDistance - boardThickness / 2)
           hitWorldPosition = targetPosition.clone().add(surfaceOffset)
-          console.log('hitDistance:', hitDistance)
-          console.log('actualHitDistance:', actualHitDistance)
-          console.log('surfaceOffset:', surfaceOffset.clone())
-          console.log('hitWorldPosition（計算後）:', hitWorldPosition.clone())
         } else {
-          // 距離が0の場合は中心に配置
-          console.log('距離が0のため中心に配置')
           hitWorldPosition = targetPosition.clone()
         }
         
-        // 矢を的のグループに追加する前に、的のローカル座標系に変換
-        // 的のワールド座標を考慮して、矢の位置を的のローカル座標に変換
         const targetWorldMatrix = new THREE.Matrix4()
         target.updateMatrixWorld(true)
         targetWorldMatrix.copy(target.matrixWorld)
         const targetInverseMatrix = new THREE.Matrix4().copy(targetWorldMatrix).invert()
-        
-        // ワールド座標を的のローカル座標に変換
         const hitLocalPosition = hitWorldPosition.clone().applyMatrix4(targetInverseMatrix)
-        console.log('hitLocalPosition（的のローカル座標）:', hitLocalPosition.clone())
         
-        // 矢の位置をローカル座標に設定
         arrow.group.position.copy(hitLocalPosition)
-        arrow.position.copy(hitWorldPosition) // arrow.positionはワールド座標を保持
-        
-        console.log('arrow.group.position（ローカル座標設定後）:', arrow.group.position.clone())
-        
-        // 矢を的のグループに追加（的と一緒に動くように）
-        console.log('矢を的のグループに追加')
+        arrow.position.copy(hitWorldPosition)
         target.add(arrow.group)
         
-        // 追加後の位置を確認
-        const finalPosition = new THREE.Vector3()
-        arrow.group.getWorldPosition(finalPosition)
-        console.log('最終的な矢の位置（getWorldPosition）:', finalPosition.clone())
-        console.log('期待される位置（hitWorldPosition）:', hitWorldPosition.clone())
-        console.log('位置の差:', finalPosition.clone().sub(hitWorldPosition))
-        console.log('==================')
-        
-        // スコア計算：中央付近（内側）なら10点、周辺（外側）なら3点
         let points = 0
         if (distance < innerRadius) {
-          // 中央付近に当たった
-          points = 10
+          points = 5
         } else {
-          // 周辺に当たった
           points = 3
         }
         score += points
