@@ -73,8 +73,6 @@ const debugMode = urlParams.get('debug') === 'true'
 let isCharging = false // チャージ中かどうか
 let chargeStartTime = 0 // チャージ開始時刻
 let chargeAmount = 0 // チャージ量（0-1）
-const maxChargeTime = 3.0 // 最大チャージ時間（秒）
-let releasePosition: { x: number; y: number } | null = null // クリック/タップを離した位置
 const arrows: Array<{
   group: THREE.Group
   velocity: THREE.Vector3
@@ -562,7 +560,6 @@ function startCharging() {
   isCharging = true
   chargeStartTime = gameTime
   chargeAmount = 0
-  releasePosition = null
 }
 
 // チャージを終了して矢を発射
@@ -627,7 +624,6 @@ function releaseArrow(releaseX?: number, releaseY?: number) {
   })
   
   chargeAmount = 0
-  releasePosition = null
   
   // チャージゲージを0に戻す
   const chargeGaugeBar = document.getElementById('chargeGaugeBar')
@@ -744,19 +740,10 @@ if (debugMode) {
 }
 
 // タッチイベント（モバイル用）
-let previousTouchPosition: { x: number; y: number } | null = null
-let touchStartTime = 0
-let touchStartPosition: { x: number; y: number } | null = null
-const longPressTime = 300 // 長押し判定時間（ms）
 
 renderer.domElement.addEventListener('touchstart', (e) => {
   e.preventDefault()
   if (e.touches.length === 1) {
-    const touch = e.touches[0]
-    touchStartTime = Date.now()
-    touchStartPosition = { x: touch.clientX, y: touch.clientY }
-    previousTouchPosition = { x: touch.clientX, y: touch.clientY }
-    
     // タップでチャージ開始
     startCharging()
   }
@@ -777,14 +764,11 @@ renderer.domElement.addEventListener('touchend', (e) => {
   }
   
   isDragging = false
-  previousTouchPosition = null
-  touchStartPosition = null
 })
 
 renderer.domElement.addEventListener('touchcancel', (e) => {
   e.preventDefault()
   isDragging = false
-  previousTouchPosition = null
 })
 
 // スペースキーでカメラの移動を停止/再開（デバッグモードのみ）
