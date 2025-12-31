@@ -8,6 +8,39 @@
   </head>
   <body>
     <div id="app"></div>
+    
+    <!-- 開始画面 -->
+    <div id="startScreen" class="screen-overlay">
+      <div class="screen-content">
+        <h1>流鏑馬ゲーム</h1>
+        <p>3つの的を射抜け！</p>
+        <button id="startButton" class="game-button">ゲームスタート</button>
+      </div>
+    </div>
+    
+    <!-- 終了画面 -->
+    <div id="endScreen" class="screen-overlay" style="display: none;">
+      <div class="screen-content">
+        <h1>ゲーム終了</h1>
+        <div id="scoreDisplay">
+          <p>スコア: <span id="scoreValue">0</span></p>
+        </div>
+        <button id="restartButton" class="game-button">もう一度プレイ</button>
+        <div class="credits">
+          <h3>クレジット</h3>
+          <p>テクスチャ素材: <a href="https://www.beiz.jp/" target="_blank">BEIZ images</a></p>
+          <p>効果音: <a href="https://vsq.co.jp/plus/" target="_blank">VSQ plus+</a>, <a href="https://pocket-se.info/" target="_blank">Pocket SE</a></p>
+        </div>
+      </div>
+    </div>
+    
+    <!-- チャージゲージ -->
+    <div id="chargeGauge" class="charge-gauge">
+      <div class="charge-gauge-bar-container">
+        <div id="chargeGaugeBar" class="charge-gauge-bar"></div>
+      </div>
+    </div>
+    
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

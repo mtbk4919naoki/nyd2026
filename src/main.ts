@@ -1,19 +1,53 @@
 import './style.css'
 import * as THREE from 'three'
 
+// テクスチャローダー
+const textureLoader = new THREE.TextureLoader()
+
+// テクスチャの読み込み（publicフォルダのテクスチャを使用）
+// 地面のテクスチャ（paper）
+const groundTexture = textureLoader.load('/paper_beiz_00063.jpg')
+groundTexture.wrapS = THREE.RepeatWrapping
+groundTexture.wrapT = THREE.RepeatWrapping
+groundTexture.repeat.set(20, 20) // テクスチャの繰り返し
+
+// 山のテクスチャ（paper）
+const mountainTexture = textureLoader.load('/paper_beiz_00063.jpg')
+mountainTexture.wrapS = THREE.RepeatWrapping
+mountainTexture.wrapT = THREE.RepeatWrapping
+mountainTexture.repeat.set(2, 2)
+
 // シーンのセットアップ
 const scene = new THREE.Scene()
-scene.background = new THREE.Color(0x87CEEB) // 空色の背景
+
+// 空のテクスチャ（sky）- スカイボックスとして使用
+const skyTexture = textureLoader.load('/sky_beiz_00008.jpg')
+// テクスチャを繰り返し表示できるように設定（半分のサイズで表示）
+skyTexture.wrapS = THREE.RepeatWrapping
+skyTexture.wrapT = THREE.RepeatWrapping
+skyTexture.repeat.set(2, 2) // 2×2回繰り返して、半分のサイズで表示
+// スカイボックス用の大きな球体を作成
+const skyGeometry = new THREE.SphereGeometry(120, 32, 32) // 半径120mの球体（レンダリング距離内）
+const skyMaterial = new THREE.MeshBasicMaterial({
+  map: skyTexture,
+  side: THREE.BackSide, // 内側から見る
+  fog: false, // フォグの影響を受けない
+  depthWrite: false, // 深度書き込みを無効化
+  depthTest: false // 深度テストを無効化（常に背景として表示）
+})
+const sky = new THREE.Mesh(skyGeometry, skyMaterial)
+// スカイボックスをシーンに追加し、アニメーションループでカメラの位置に同期
+scene.add(sky)
 
 // フォグを追加（地面の端が見えないように）
-scene.fog = new THREE.Fog(0x87CEEB, 50, 200) // 色、近距離、遠距離
+scene.fog = new THREE.Fog(0x87CEEB, 30, 120) // 色、近距離、遠距離（レンダリング距離に合わせて調整）
 
 // カメラのセットアップ（FPS視点：騎手の視点）
 const camera = new THREE.PerspectiveCamera(
   75,
   window.innerWidth / window.innerHeight,
   0.1,
-  1000
+  150 // レンダリング距離を短く（地平線が見えないように）
 )
 // 騎手の視点：地面から1mの高さ
 camera.position.set(0, 1, 0)
@@ -21,7 +55,50 @@ camera.position.set(0, 1, 0)
 // カメラの進行速度（m/s）
 const cameraSpeed = 5 // 秒速5m
 let lastTime = performance.now()
-let isCameraMoving = true // カメラの移動状態
+let isCameraMoving = false // カメラの移動状態（開始時は停止）
+let gameStarted = false // ゲーム開始フラグ
+let gameEnded = false // ゲーム終了フラグ
+let score = 0 // スコア
+let gameTime = 0 // ゲーム開始からの経過時間（秒）
+
+// デバッグモード（GETパラメータで切り替え）
+const urlParams = new URLSearchParams(window.location.search)
+const debugMode = urlParams.get('debug') === 'true'
+
+// 弓矢の制御
+let isCharging = false // チャージ中かどうか
+let chargeStartTime = 0 // チャージ開始時刻
+let chargeAmount = 0 // チャージ量（0-1）
+const maxChargeTime = 3.0 // 最大チャージ時間（秒）
+let releasePosition: { x: number; y: number } | null = null // クリック/タップを離した位置
+const arrows: Array<{
+  group: THREE.Group
+  velocity: THREE.Vector3
+  position: THREE.Vector3
+  isStopped: boolean
+  hitTarget: THREE.Group | null
+  initialRotation: THREE.Euler // 発射時のカメラの回転
+}> = [] // 発射された矢の配列
+const gravity = -9.8 // 重力加速度（m/s²）
+const baseArrowSpeed = 30 // 基本の矢の速度（m/s）
+
+// 音声ファイル
+const horseSound = new Audio('/gyarop.mp3')
+horseSound.loop = true // 馬の足音はループ再生
+horseSound.volume = 0.5
+
+const arrowSound = new Audio('/VSQSE_0381_Japanese_arrow_02.mp3')
+arrowSound.volume = 0.7
+
+// 矢の効果音の前半と後半の時間を取得（後で設定）
+let arrowSoundDuration = 0
+// 発射音の終了位置（秒）- 前半のみ再生
+const arrowSoundFireEndTime = 0 // 手動で調整可能
+// 命中音の開始位置（秒）- 後半から再生
+const arrowSoundHitStartTime = 1.0 // 手動で調整可能
+arrowSound.addEventListener('loadedmetadata', () => {
+  arrowSoundDuration = arrowSound.duration
+})
 
 // レンダラーのセットアップ
 const renderer = new THREE.WebGLRenderer({ antialias: true })
@@ -44,12 +121,26 @@ console.log('Canvas要素:', renderer.domElement)
 console.log('Canvasサイズ:', renderer.domElement.width, 'x', renderer.domElement.height)
 
 // ライトの追加
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.6)
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.4)
 scene.add(ambientLight)
 
-const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8)
-directionalLight.position.set(10, 10, 5)
+// メインの方向光（真上より少し傾けた位置）
+const directionalLight = new THREE.DirectionalLight(0xffffff, 0.9)
+directionalLight.position.set(5, 15, 5) // 真上より少し傾けた位置
 directionalLight.castShadow = true
+
+// 影の設定
+directionalLight.shadow.mapSize.width = 2048
+directionalLight.shadow.mapSize.height = 2048
+directionalLight.shadow.camera.near = 0.5
+directionalLight.shadow.camera.far = 200
+directionalLight.shadow.camera.left = -100
+directionalLight.shadow.camera.right = 100
+directionalLight.shadow.camera.top = 100
+directionalLight.shadow.camera.bottom = -100
+directionalLight.shadow.bias = -0.0001
+directionalLight.shadow.normalBias = 0.02 // シャドウアクネを防ぐ
+
 scene.add(directionalLight)
 
 // 地面の作成
@@ -57,34 +148,42 @@ scene.add(directionalLight)
 // 的の間隔: 20m
 // 最後の的から地面の終わりまで: 30m（ルールは維持）
 const firstTargetZ = -30 // 最初の的の位置（スタートから30m）
-const targetInterval = 20 // 的の間隔（20m）
-const lastTargetZ = firstTargetZ - (targetInterval * 2) // 最後の的の位置（-70m）
-const groundEndZ = lastTargetZ - 30 // 地面の終わり（-100m、ルール通り）
+const targetInterval = 30 // 的の間隔（30m）
+const lastTargetZ = firstTargetZ - (targetInterval * 2) // 最後の的の位置（-90m）
+const groundEndZ = lastTargetZ - 20 // 地面の終わり（-110m、最後の的から20m）
 
 // 地面を延長（フォグで端が見えないように）
-const extendedGroundLength = 300 // 延長後の地面の長さ（300m）
+// スタート地点側も延長するため、中心を調整
+const startExtension = 50 // スタート地点側の延長（50m）
+const endExtension = 250 // 終了地点側の延長（250m）
+const extendedGroundLength = startExtension + Math.abs(groundEndZ) + endExtension // 全長
 const groundWidth = 300 // 幅（左右、長さと同じ300mに延長）
 const groundGeometry = new THREE.PlaneGeometry(groundWidth, extendedGroundLength)
-const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x90EE90 })
+const groundMaterial = new THREE.MeshStandardMaterial({ 
+  map: groundTexture,
+  color: 0x90EE90 // テクスチャの色調を調整
+})
 const ground = new THREE.Mesh(groundGeometry, groundMaterial)
 ground.rotation.x = -Math.PI / 2
 ground.position.y = 0
-ground.position.z = -extendedGroundLength / 2 // 地面の中心を原点に合わせる
+// 地面の中心を調整（スタート地点側も延長したため）
+ground.position.z = -startExtension - Math.abs(groundEndZ) / 2
 ground.receiveShadow = true
 scene.add(ground)
 
 // 山を作成する関数
 function createMountain(position: { x: number; y: number; z: number }, scale: number): THREE.Mesh {
-  // 山の形状（円錐）
-  const mountainGeometry = new THREE.ConeGeometry(scale * 0.5, scale, 8, 1)
+  // 山の形状（円錐）- セグメント数を増やして滑らかに
+  const mountainGeometry = new THREE.ConeGeometry(scale * 0.5, scale, 16, 1) // セグメント数を8から16に増加
   const mountainMaterial = new THREE.MeshStandardMaterial({ 
-    color: 0x6B8E23, // オリーブ色
-    flatShading: true
+    map: mountainTexture,
+    color: 0x6B8E23, // オリーブ色（テクスチャの色調を調整）
+    flatShading: false // 滑らかな表面にする
   })
   const mountain = new THREE.Mesh(mountainGeometry, mountainMaterial)
   mountain.position.set(position.x, position.y + scale / 2, position.z) // 山の底が地面に
-  mountain.castShadow = true
-  mountain.receiveShadow = true
+  mountain.castShadow = true // 影を落とす
+  mountain.receiveShadow = true // 影を受ける
   return mountain
 }
 
@@ -125,6 +224,64 @@ mountainPositions.forEach(pos => {
   scene.add(mountain)
 })
 
+// 大きな山を追加（コースと的の周辺を避けて配置）
+const largeMountainPositions: Array<{ x: number; y: number; z: number; scale: number }> = []
+
+// コースの左側の遠くに大きな山を配置
+for (let z = -50; z >= -150; z -= 20) {
+  const x = -15 + Math.random() * 5 // -15mから-10mの範囲（コースから離れた位置）
+  const scale = 8 + Math.random() * 6 // 8mから14mの高さ（大きい山）
+  largeMountainPositions.push({ x, y: 0, z, scale })
+}
+
+// コースの右側の遠くに大きな山を配置（的の反対側）
+for (let z = -50; z >= -150; z -= 20) {
+  const x = 15 + Math.random() * 5 // 15mから20mの範囲（コースから離れた位置）
+  const scale = 8 + Math.random() * 6 // 8mから14mの高さ（大きい山）
+  largeMountainPositions.push({ x, y: 0, z, scale })
+}
+
+// 進行方向の奥（終了地点側）に大きな山を配置
+for (let x = -20; x <= 20; x += 10) {
+  if (Math.abs(x) < 5) continue // コースの真上は避ける
+  const z = -120 + Math.random() * 20 // -120mから-100mの範囲
+  const scale = 8 + Math.random() * 6 // 8mから14mの高さ
+  largeMountainPositions.push({ x, y: 0, z, scale })
+}
+
+// スタート地点側に大きな山を配置
+for (let x = -20; x <= 20; x += 10) {
+  if (Math.abs(x) < 5) continue // コースの真上は避ける
+  const z = 20 + Math.random() * 20 // 20mから40mの範囲（スタート地点側）
+  const scale = 8 + Math.random() * 6 // 8mから14mの高さ
+  largeMountainPositions.push({ x, y: 0, z, scale })
+}
+
+// 的の周辺を避けて、さらに遠くに大きな山を配置
+// 的の位置: z = -30, -50, -70, x = 3
+const targetZs = [-30, -50, -70]
+for (let z = -20; z >= -180; z -= 25) {
+  // 的の位置を避ける
+  const isNearTarget = targetZs.some(tz => Math.abs(z - tz) < 15)
+  if (isNearTarget) continue
+  
+  // 左側に配置
+  const xLeft = -12 + Math.random() * 3
+  const scaleLeft = 8 + Math.random() * 6
+  largeMountainPositions.push({ x: xLeft, y: 0, z, scale: scaleLeft })
+  
+  // 右側に配置（的の反対側、x=3より右）
+  const xRight = 8 + Math.random() * 5
+  const scaleRight = 8 + Math.random() * 6
+  largeMountainPositions.push({ x: xRight, y: 0, z, scale: scaleRight })
+}
+
+// 大きな山をシーンに追加
+largeMountainPositions.forEach(pos => {
+  const mountain = createMountain(pos, pos.scale)
+  scene.add(mountain)
+})
+
 // カメラのリセット位置（元の地面の端を超えたら戻る位置）
 const cameraResetZ = groundEndZ - 5 // 元の地面の端を少し超えたらリセット
 
@@ -132,13 +289,127 @@ const cameraResetZ = groundEndZ - 5 // 元の地面の端を少し超えたら�
 let isDragging = false
 let previousMousePosition = { x: 0, y: 0 }
 let cameraRotation = { horizontal: 0, vertical: 0 } // 水平回転と垂直回転
+let targetRotation = { horizontal: 0, vertical: 0 } // 目標回転（自動追従用）
+let rotationVelocity = { horizontal: 0, vertical: 0 } // 回転速度（慣性用）
+const rotationDamping = 0.5 // 慣性の減衰係数（小さいほど滑らか）
+const rotationSpring = 0.25 // 目標への復帰力（大きいほど速く反応）
+const rotationNoise = 0.0 // ブレの強さ
 
-// カメラの回転を更新する関数
-function updateCameraRotation() {
+// 一番近い的を見つける関数
+function findNearestTarget(): THREE.Group | null {
+  if (targets.length === 0) return null
+  
+  let nearestTarget: THREE.Group | null = null
+  let nearestDistance = Infinity
+  
+  targets.forEach(target => {
+    const targetPosition = new THREE.Vector3()
+    target.getWorldPosition(targetPosition)
+    const distance = camera.position.distanceTo(targetPosition)
+    
+    if (distance < nearestDistance) {
+      nearestDistance = distance
+      nearestTarget = target
+    }
+  })
+  
+  return nearestTarget
+}
+
+// 的の方向を計算して目標回転を設定
+function updateTargetRotation() {
+  if (!gameStarted || gameEnded) {
+    console.log('updateTargetRotation: ゲーム未開始または終了', { gameStarted, gameEnded })
+    return
+  }
+  
+  const nearestTarget = findNearestTarget()
+  if (!nearestTarget) {
+    console.log('updateTargetRotation: 的が見つかりません', { targetsLength: targets.length })
+    return
+  }
+  
+  const targetPosition = new THREE.Vector3()
+  nearestTarget.getWorldPosition(targetPosition)
+  
+  // カメラから的への方向ベクトル
+  const direction = new THREE.Vector3()
+  direction.subVectors(targetPosition, camera.position).normalize()
+  
+  // 水平回転（Y軸周り）を計算
+  // Three.jsでは、カメラの前方が-Z方向
+  // カメラの初期方向は(0, 0, -1)なので、これを基準に計算
+  // 的が右側（x>0）にある場合、右を向く必要がある
+  // 符号を反転させて正しい方向を向くようにする
+  const horizontalRotation = Math.atan2(-direction.x, -direction.z)
+  
+  // 垂直回転（X軸周り）を計算
+  const horizontalDistance = Math.sqrt(direction.x * direction.x + direction.z * direction.z)
+  const verticalRotation = Math.atan2(-direction.y, horizontalDistance)
+  
+  // 目標回転を設定（±60度に制限）
+  targetRotation.horizontal = horizontalRotation
+  targetRotation.vertical = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, verticalRotation))
+  
+  // デバッグログ（毎フレーム出力、後で削除）
+  console.log('=== 的追従デバッグ ===')
+  console.log('カメラ位置:', camera.position)
+  console.log('的の位置:', targetPosition)
+  console.log('方向ベクトル:', direction)
+  console.log('目標水平回転:', horizontalRotation, 'ラジアン (', (horizontalRotation * 180 / Math.PI).toFixed(2), '度)')
+  console.log('目標垂直回転:', verticalRotation, 'ラジアン (', (verticalRotation * 180 / Math.PI).toFixed(2), '度)')
+  console.log('現在の水平回転:', cameraRotation.horizontal, 'ラジアン (', (cameraRotation.horizontal * 180 / Math.PI).toFixed(2), '度)')
+  console.log('現在の垂直回転:', cameraRotation.vertical, 'ラジアン (', (cameraRotation.vertical * 180 / Math.PI).toFixed(2), '度)')
+  console.log('回転速度:', rotationVelocity)
+  console.log('==================')
+}
+
+// カメラの回転を更新する関数（慣性付き）
+function updateCameraRotation(deltaTime: number = 0.016) {
+  // デバッグモードでない場合、または手動操作中でない場合、自動追従を有効化
+  if ((!debugMode || !isDragging) && gameStarted && !gameEnded) {
+    // デバッグ: ゲーム状態を確認
+    if (Math.random() < 0.01) {
+      console.log('ゲーム状態:', { gameStarted, gameEnded, isDragging })
+    }
+    updateTargetRotation()
+    
+    // 目標回転との差を計算
+    let deltaHorizontal = targetRotation.horizontal - cameraRotation.horizontal
+    let deltaVertical = targetRotation.vertical - cameraRotation.vertical
+    
+    // 角度を-πからπの範囲に正規化
+    while (deltaHorizontal > Math.PI) deltaHorizontal -= 2 * Math.PI
+    while (deltaHorizontal < -Math.PI) deltaHorizontal += 2 * Math.PI
+    
+    // スプリングとダンパーを使った物理シミュレーション
+    const springForceH = deltaHorizontal * rotationSpring
+    const springForceV = deltaVertical * rotationSpring
+    
+    // 速度を更新（デルタタイムを考慮）
+    rotationVelocity.horizontal += springForceH * deltaTime * 60
+    rotationVelocity.vertical += springForceV * deltaTime * 60
+    
+    // 減衰を適用
+    rotationVelocity.horizontal *= (1 - rotationDamping)
+    rotationVelocity.vertical *= (1 - rotationDamping)
+    
+    // ランダムなブレを追加
+    rotationVelocity.horizontal += (Math.random() - 0.5) * rotationNoise
+    rotationVelocity.vertical += (Math.random() - 0.5) * rotationNoise
+    
+    // 回転を更新
+    cameraRotation.horizontal += rotationVelocity.horizontal
+    cameraRotation.vertical += rotationVelocity.vertical
+    
+    // 垂直回転を制限
+    cameraRotation.vertical = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, cameraRotation.vertical))
+  }
+  
   // 水平回転（Y軸周り）
   const horizontalRotation = cameraRotation.horizontal
   // 垂直回転（X軸周り）- 上下の制限を設ける（±60度）
-  const verticalRotation = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, cameraRotation.vertical))
+  const verticalRotation = cameraRotation.vertical
   
   // カメラの方向ベクトルを計算
   const direction = new THREE.Vector3(0, 0, -1)
@@ -252,6 +523,150 @@ function createTarget(position: { x: number; y: number; z: number }): THREE.Grou
   return targetGroup
 }
 
+// 矢を作成する関数
+function createArrow(): THREE.Group {
+  const arrowGroup = new THREE.Group()
+  
+  // 矢の軸（細い円柱）- Z軸方向（-Zが前方）に配置
+  const shaftGeometry = new THREE.CylinderGeometry(0.01, 0.01, 0.5, 8)
+  const shaftMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 }) // 茶色
+  const shaft = new THREE.Mesh(shaftGeometry, shaftMaterial)
+  shaft.rotation.x = Math.PI / 2 // X軸周りに90度回転して横向きにする
+  shaft.position.z = -0.25 // 中心から少し前に（-Z方向）
+  arrowGroup.add(shaft)
+  
+  // 矢じり（三角錐）- 先端に配置
+  const headGeometry = new THREE.ConeGeometry(0.015, 0.05, 8)
+  const headMaterial = new THREE.MeshStandardMaterial({ color: 0x808080 }) // 灰色
+  const head = new THREE.Mesh(headGeometry, headMaterial)
+  head.rotation.x = Math.PI / 2 // X軸周りに90度回転して横向きにする
+  head.position.z = -0.5 // 先端に配置（-Z方向）
+  arrowGroup.add(head)
+  
+  // 矢羽（2枚）
+  const fletchingGeometry = new THREE.BoxGeometry(0.02, 0.05, 0.01)
+  const fletchingMaterial = new THREE.MeshStandardMaterial({ color: 0xFF0000 }) // 赤
+  const fletching1 = new THREE.Mesh(fletchingGeometry, fletchingMaterial)
+  fletching1.position.z = 0
+  fletching1.position.y = 0.02
+  arrowGroup.add(fletching1)
+  const fletching2 = new THREE.Mesh(fletchingGeometry, fletchingMaterial)
+  fletching2.position.z = 0
+  fletching2.position.y = -0.02
+  arrowGroup.add(fletching2)
+  
+  arrowGroup.castShadow = true
+  return arrowGroup
+}
+
+// チャージ量を計算（後ほど遅くなる）
+function calculateChargeAmount(elapsedTime: number): number {
+  // 最初は速く、後ほど遅くなる非線形なチャージ
+  // 0-1の範囲で、最初の1秒で0.7、次の1秒で0.25、最後の1秒で0.05
+  if (elapsedTime < 1.0) {
+    return Math.min(0.7 * (elapsedTime / 1.0), 0.7)
+  } else if (elapsedTime < 2.0) {
+    return 0.7 + 0.25 * ((elapsedTime - 1.0) / 1.0)
+  } else {
+    return 0.95 + 0.05 * Math.min((elapsedTime - 2.0) / 1.0, 1.0)
+  }
+}
+
+// チャージを開始
+function startCharging() {
+  if (!gameStarted || gameEnded || isCharging) return
+  isCharging = true
+  chargeStartTime = gameTime
+  chargeAmount = 0
+  releasePosition = null
+}
+
+// チャージを終了して矢を発射
+function releaseArrow(releaseX?: number, releaseY?: number) {
+  if (!isCharging) return
+  
+  isCharging = false
+  
+  // チャージ量が0の場合は発射しない
+  if (chargeAmount < 0.1) {
+    chargeAmount = 0
+    return
+  }
+  
+  // クリック/タップを離した位置から方向を計算
+  let direction: THREE.Vector3
+  
+  if (releaseX !== undefined && releaseY !== undefined) {
+    // 画面座標を正規化デバイス座標（-1 to 1）に変換
+    const mouse = new THREE.Vector2()
+    mouse.x = (releaseX / window.innerWidth) * 2 - 1
+    mouse.y = -(releaseY / window.innerHeight) * 2 + 1
+    
+    // レイキャスターを使用して3D空間の方向を取得
+    const raycaster = new THREE.Raycaster()
+    raycaster.setFromCamera(mouse, camera)
+    
+    // カメラの前方方向を基準に、レイキャスターの方向を使用
+    direction = raycaster.ray.direction.normalize()
+  } else {
+    // フォールバック: カメラの正面方向
+    direction = new THREE.Vector3(0, 0, -1)
+    direction.applyAxisAngle(new THREE.Vector3(0, 1, 0), cameraRotation.horizontal)
+    direction.applyAxisAngle(new THREE.Vector3(1, 0, 0), cameraRotation.vertical)
+  }
+  
+  // 矢の速度を計算（チャージ量に応じて）
+  const speed = baseArrowSpeed * (0.5 + chargeAmount * 0.5) // 15-30 m/s
+  const velocity = direction.multiplyScalar(speed)
+  
+  // 矢を作成
+  const arrow = createArrow()
+  arrow.position.copy(camera.position)
+  
+  // 矢の初期向きを速度方向に設定
+  // 矢はX軸方向（右方向）を向いているので、速度方向に向ける
+  const velocityNormalized = velocity.clone().normalize()
+  const lookAtPoint = arrow.position.clone().add(velocityNormalized)
+  arrow.lookAt(lookAtPoint)
+  
+  scene.add(arrow)
+  
+  // 矢のデータを保存
+  arrows.push({
+    group: arrow,
+    velocity: velocity.clone(),
+    position: camera.position.clone(),
+    isStopped: false,
+    hitTarget: null,
+    initialRotation: camera.rotation.clone() // 発射時のカメラの回転を保存
+  })
+  
+  chargeAmount = 0
+  releasePosition = null
+  
+  // チャージゲージを0に戻す
+  const chargeGaugeBar = document.getElementById('chargeGaugeBar')
+  if (chargeGaugeBar) {
+    chargeGaugeBar.style.height = '0%'
+  }
+  
+  // 矢の発射音（前半のみ再生）
+  if (arrowSoundDuration > 0) {
+    const arrowSoundClone = arrowSound.cloneNode() as HTMLAudioElement
+    arrowSoundClone.volume = arrowSound.volume
+    arrowSoundClone.currentTime = 0
+    // 手動で設定した終了位置まで再生
+    const stopHandler = () => {
+      if (arrowSoundClone.currentTime >= arrowSoundFireEndTime) {
+        arrowSoundClone.pause()
+        arrowSoundClone.removeEventListener('timeupdate', stopHandler)
+      }
+    }
+    arrowSoundClone.addEventListener('timeupdate', stopHandler)
+    arrowSoundClone.play().catch(e => console.log('音声再生エラー:', e))
+  }
+}
+
 // 3つの的を配置（進行方向に向かって右側、地面から1mの高さ）
 // 最初の的: スタートから40m、20m間隔で配置
 const targets: THREE.Group[] = []
@@ -271,73 +686,114 @@ const target3 = createTarget({ x: 3, y: 1, z: firstTargetZ - (targetInterval * 2
 scene.add(target3)
 targets.push(target3)
 
+// 右クリックのコンテキストメニューを無効化
+renderer.domElement.addEventListener('contextmenu', (e) => {
+  e.preventDefault()
+})
+
 // マウスイベント（PC用）
 renderer.domElement.addEventListener('mousedown', (e) => {
-  isDragging = true
-  previousMousePosition = { x: e.clientX, y: e.clientY }
-  renderer.domElement.style.cursor = 'grabbing'
+  // 左クリックでチャージ開始
+  if (e.button === 0) {
+    e.preventDefault()
+    startCharging()
+    return
+  }
+  
+  // デバッグモードの場合、右クリックでカメラ操作
+  if (debugMode && e.button === 2) {
+    e.preventDefault()
+    isDragging = true
+    previousMousePosition = { x: e.clientX, y: e.clientY }
+    renderer.domElement.style.cursor = 'grabbing'
+  }
 })
 
-renderer.domElement.addEventListener('mousemove', (e) => {
-  if (!isDragging) return
+// デバッグモードの場合のみカメラ操作を有効化
+if (debugMode) {
+  renderer.domElement.addEventListener('mousemove', (e) => {
+    if (!isDragging) return
+    
+    const deltaX = e.clientX - previousMousePosition.x
+    const deltaY = e.clientY - previousMousePosition.y
+    
+    // 感度調整
+    const sensitivity = 0.005
+    cameraRotation.horizontal -= deltaX * sensitivity
+    cameraRotation.vertical -= deltaY * sensitivity
+    
+    // 手動操作時は速度をリセット
+    rotationVelocity.horizontal = 0
+    rotationVelocity.vertical = 0
+    
+    updateCameraRotation()
+    
+    previousMousePosition = { x: e.clientX, y: e.clientY }
+  })
+}
+
+renderer.domElement.addEventListener('mouseup', (e) => {
+  // 左クリックでチャージ終了（発射）
+  if (e.button === 0) {
+    e.preventDefault()
+    releaseArrow(e.clientX, e.clientY)
+    return
+  }
   
-  const deltaX = e.clientX - previousMousePosition.x
-  const deltaY = e.clientY - previousMousePosition.y
-  
-  // 感度調整
-  const sensitivity = 0.005
-  cameraRotation.horizontal -= deltaX * sensitivity
-  cameraRotation.vertical -= deltaY * sensitivity
-  
-  updateCameraRotation()
-  
-  previousMousePosition = { x: e.clientX, y: e.clientY }
+  // デバッグモードの場合、右クリックでカメラ操作終了
+  if (debugMode && e.button === 2) {
+    e.preventDefault()
+    isDragging = false
+    renderer.domElement.style.cursor = 'grab'
+  }
 })
 
-renderer.domElement.addEventListener('mouseup', () => {
-  isDragging = false
+if (debugMode) {
+  renderer.domElement.addEventListener('mouseleave', () => {
+    isDragging = false
+    renderer.domElement.style.cursor = 'grab'
+  })
+  
+  // カーソルスタイルの初期設定
   renderer.domElement.style.cursor = 'grab'
-})
-
-renderer.domElement.addEventListener('mouseleave', () => {
-  isDragging = false
-  renderer.domElement.style.cursor = 'grab'
-})
+}
 
 // タッチイベント（モバイル用）
 let previousTouchPosition: { x: number; y: number } | null = null
+let touchStartTime = 0
+let touchStartPosition: { x: number; y: number } | null = null
+const longPressTime = 300 // 長押し判定時間（ms）
 
 renderer.domElement.addEventListener('touchstart', (e) => {
   e.preventDefault()
   if (e.touches.length === 1) {
     const touch = e.touches[0]
+    touchStartTime = Date.now()
+    touchStartPosition = { x: touch.clientX, y: touch.clientY }
     previousTouchPosition = { x: touch.clientX, y: touch.clientY }
-    isDragging = true
+    
+    // タップでチャージ開始
+    startCharging()
   }
 })
 
 renderer.domElement.addEventListener('touchmove', (e) => {
   e.preventDefault()
-  if (!isDragging || !previousTouchPosition || e.touches.length !== 1) return
-  
-  const touch = e.touches[0]
-  const deltaX = touch.clientX - previousTouchPosition.x
-  const deltaY = touch.clientY - previousTouchPosition.y
-  
-  // 感度調整
-  const sensitivity = 0.005
-  cameraRotation.horizontal -= deltaX * sensitivity
-  cameraRotation.vertical -= deltaY * sensitivity
-  
-  updateCameraRotation()
-  
-  previousTouchPosition = { x: touch.clientX, y: touch.clientY }
+  // タッチ移動中はチャージを継続（何もしない）
 })
 
 renderer.domElement.addEventListener('touchend', (e) => {
   e.preventDefault()
+  
+  // チャージ中なら矢を発射
+  if (isCharging && e.changedTouches.length > 0) {
+    const touch = e.changedTouches[0]
+    releaseArrow(touch.clientX, touch.clientY)
+  }
+  
   isDragging = false
   previousTouchPosition = null
+  touchStartPosition = null
 })
 
 renderer.domElement.addEventListener('touchcancel', (e) => {
@@ -346,17 +802,16 @@ renderer.domElement.addEventListener('touchcancel', (e) => {
   previousTouchPosition = null
 })
 
-// カーソルスタイルの初期設定
-renderer.domElement.style.cursor = 'grab'
-
-// スペースキーでカメラの移動を停止/再開
-window.addEventListener('keydown', (e) => {
-  if (e.code === 'Space') {
-    e.preventDefault()
-    isCameraMoving = !isCameraMoving
-    console.log('カメラ移動:', isCameraMoving ? '再開' : '停止')
-  }
-})
+// スペースキーでカメラの移動を停止/再開（デバッグモードのみ）
+if (debugMode) {
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') {
+      e.preventDefault()
+      isCameraMoving = !isCameraMoving
+      console.log('カメラ移動:', isCameraMoving ? '再開' : '停止')
+    }
+  })
+}
 
 // アニメーションループ
 function animate() {
@@ -367,19 +822,112 @@ function animate() {
   const deltaTime = (currentTime - lastTime) / 1000 // 秒単位に変換
   lastTime = currentTime
   
-  // カメラを進行方向（-Z方向）に移動（停止中でない場合のみ）
-  if (isCameraMoving) {
+  // カメラを進行方向（-Z方向）に移動（ゲーム開始中で停止中でない場合のみ）
+  if (isCameraMoving && gameStarted && !gameEnded) {
     camera.position.z -= cameraSpeed * deltaTime
+    gameTime += deltaTime // ゲーム時間を更新
   }
-  camera.position.y = 1 // 高さを1mに固定
   
-  // 地面の端を超えたら最初の位置に戻る
-  if (camera.position.z <= cameraResetZ) {
-    camera.position.z = 0 // 最初の位置に戻る
+  // 馬の走行を再現する上下動（全波整流したサイン波）
+  // 全波整流: Math.abs(Math.sin(t))で、常に正の値になる
+  const horseBounceFrequency = 1 // 上下動の周波数（Hz、馬の歩調）
+  const horseBounceAmplitude = 0.15 // 上下動の振幅（m）
+  const baseHeight = 1.0 // 基本の高さ（m）
+  const horseBounce = Math.abs(Math.sin(gameTime * horseBounceFrequency * Math.PI * 2)) * horseBounceAmplitude
+  camera.position.y = baseHeight + horseBounce
+  
+  // 終了地点に到達したら終了画面を表示
+  if (camera.position.z <= cameraResetZ && gameStarted && !gameEnded) {
+    gameEnded = true
+    isCameraMoving = false
+    showEndScreen()
   }
+  
+  // チャージ中の処理
+  if (isCharging && gameStarted && !gameEnded) {
+    const elapsedTime = gameTime - chargeStartTime
+    chargeAmount = Math.min(calculateChargeAmount(elapsedTime), 1.0)
+    
+    // チャージゲージを更新
+    const chargeGaugeBar = document.getElementById('chargeGaugeBar')
+    if (chargeGaugeBar) {
+      chargeGaugeBar.style.height = (chargeAmount * 100) + '%'
+    }
+  }
+  
+  // 矢の物理シミュレーション
+  arrows.forEach((arrow, index) => {
+    if (arrow.isStopped) return
+    
+    // 速度を更新（重力の影響）
+    arrow.velocity.y += gravity * deltaTime
+    
+    // 位置を更新
+    arrow.position.add(arrow.velocity.clone().multiplyScalar(deltaTime))
+    arrow.group.position.copy(arrow.position)
+    
+    // 矢の向きを速度方向に合わせる（カメラの向きを基準に）
+    if (arrow.velocity.length() > 0.1) {
+      const velocityNormalized = arrow.velocity.clone().normalize()
+      // 速度方向を向くように回転を計算
+      const lookAtPoint = arrow.position.clone().add(velocityNormalized)
+      arrow.group.lookAt(lookAtPoint)
+    }
+    
+    // 的との衝突判定
+    targets.forEach(target => {
+      const targetPosition = new THREE.Vector3()
+      target.getWorldPosition(targetPosition)
+      const distance = arrow.position.distanceTo(targetPosition)
+      const targetRadius = 0.25 // 的の半径（50cm = 0.5m / 2）
+      
+      if (distance < targetRadius + 0.1) {
+        // 的に当たった
+        arrow.isStopped = true
+        arrow.hitTarget = target
+        // 矢を的の位置に固定
+        arrow.position.copy(targetPosition)
+        arrow.group.position.copy(targetPosition)
+        // 矢を的の中心に固定（後で調整可能）
+        arrow.group.attach(target)
+        score += Math.floor(chargeAmount * 100) // チャージ量に応じてスコア
+        console.log('的命中！スコア:', score)
+        
+        // 命中音（後半を再生）- 命中した時のみ再生
+        if (arrowSoundDuration > 0) {
+          const hitSound = arrowSound.cloneNode() as HTMLAudioElement
+          hitSound.volume = arrowSound.volume
+          // 手動で設定した開始位置から再生
+          hitSound.currentTime = arrowSoundHitStartTime
+          hitSound.play().catch(e => console.log('音声再生エラー:', e))
+        }
+      }
+    })
+    
+    // 地面に当たった場合も停止
+    if (arrow.position.y < 0.1) {
+      arrow.isStopped = true
+      arrow.position.y = 0.1
+      arrow.group.position.copy(arrow.position)
+    }
+    
+    // 遠くに行きすぎた矢を削除
+    if (arrow.position.distanceTo(camera.position) > 200) {
+      scene.remove(arrow.group)
+      arrows.splice(index, 1)
+    }
+  })
   
   // カメラの回転を更新（進行方向を見る）
-  updateCameraRotation()
+  updateCameraRotation(deltaTime)
+  
+  // スカイボックスをカメラの位置にのみ同期（回転は同期しない）
+  sky.position.copy(camera.position)
+  
+  // シャドウカメラの位置をカメラの位置に合わせて更新（影が正しく表示されるように）
+  directionalLight.shadow.camera.position.copy(camera.position)
+  directionalLight.shadow.camera.position.y += 20 // 少し上に配置
+  directionalLight.shadow.camera.updateProjectionMatrix()
   
   renderer.render(scene, camera)
 }
@@ -390,6 +938,64 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix()
   renderer.setSize(window.innerWidth, window.innerHeight)
 })
+
+// 開始画面と終了画面の制御
+const startScreen = document.getElementById('startScreen')!
+const endScreen = document.getElementById('endScreen')!
+const startButton = document.getElementById('startButton')!
+const restartButton = document.getElementById('restartButton')!
+const scoreValue = document.getElementById('scoreValue')!
+
+// ゲーム開始
+function startGame() {
+  gameStarted = true
+  gameEnded = false
+  isCameraMoving = true
+  gameTime = 0 // ゲーム時間をリセット
+  isCharging = false // チャージをリセット
+  chargeAmount = 0
+  startScreen.style.display = 'none'
+  // カメラを初期位置にリセット
+  camera.position.set(0, 1, 0)
+  // カメラ回転と速度をリセット
+  cameraRotation = { horizontal: 0, vertical: 0 }
+  targetRotation = { horizontal: 0, vertical: 0 }
+  rotationVelocity = { horizontal: 0, vertical: 0 }
+  score = 0
+  // 既存の矢を削除
+  arrows.forEach(arrow => scene.remove(arrow.group))
+  arrows.length = 0
+  // 馬の足音を停止
+  horseSound.pause()
+  horseSound.currentTime = 0
+}
+
+// 終了画面を表示
+function showEndScreen() {
+  endScreen.style.display = 'flex'
+  scoreValue.textContent = score.toString()
+}
+
+// ゲーム再開
+function restartGame() {
+  gameStarted = false
+  gameEnded = false
+  isCameraMoving = false
+  gameTime = 0 // ゲーム時間をリセット
+  endScreen.style.display = 'none'
+  startScreen.style.display = 'flex'
+  // カメラを初期位置にリセット
+  camera.position.set(0, 1, 0)
+  // カメラ回転と速度をリセット
+  cameraRotation = { horizontal: 0, vertical: 0 }
+  targetRotation = { horizontal: 0, vertical: 0 }
+  rotationVelocity = { horizontal: 0, vertical: 0 }
+  score = 0
+}
+
+// ボタンイベント
+startButton.addEventListener('click', startGame)
+restartButton.addEventListener('click', restartGame)
 
 // アニメーション開始
 animate()

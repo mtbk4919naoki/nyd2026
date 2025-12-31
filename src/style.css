@@ -23,3 +23,132 @@ canvas {
   width: 100%;
   height: 100%;
 }
+
+/* 画面オーバーレイ（開始画面・終了画面） */
+.screen-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.7); /* 黒の半透明 */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.screen-content {
+  text-align: center;
+  color: white;
+  padding: 2rem;
+}
+
+.screen-content h1 {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+}
+
+.screen-content p {
+  font-size: 1.5rem;
+  margin-bottom: 2rem;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.game-button {
+  padding: 1rem 3rem;
+  font-size: 1.5rem;
+  background-color: #4CAF50;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+  font-weight: bold;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+.game-button:hover {
+  background-color: #45a049;
+}
+
+.game-button:active {
+  transform: scale(0.95);
+}
+
+#scoreDisplay {
+  font-size: 2rem;
+  margin: 2rem 0;
+}
+
+#scoreValue {
+  font-size: 3rem;
+  font-weight: bold;
+  color: #FFD700;
+}
+
+.credits {
+  margin-top: 2rem;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.8);
+  text-align: center;
+}
+
+.credits h3 {
+  font-size: 1.2rem;
+  margin-bottom: 1rem;
+  color: white;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.credits p {
+  margin: 0.5rem 0;
+  font-size: 0.9rem;
+}
+
+.credits a {
+  color: #87CEEB;
+  text-decoration: none;
+  transition: color 0.3s;
+}
+
+.credits a:hover {
+  color: #B0E0E6;
+  text-decoration: underline;
+}
+
+/* チャージゲージ */
+.charge-gauge {
+  position: fixed;
+  left: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 300px;
+  background-color: rgba(0, 0, 0, 0.5);
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  border-radius: 15px;
+  padding: 10px 5px;
+  z-index: 100;
+  display: block;
+}
+
+.charge-gauge-bar-container {
+  width: 100%;
+  height: 100%;
+  background-color: rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  position: relative;
+  overflow: hidden;
+}
+
+.charge-gauge-bar {
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+  height: 0%;
+  background: linear-gradient(to top, #ff0000, #ffaa00, #ffff00, #00ff00);
+  border-radius: 10px;
+  transition: height 0.1s linear;
+}
