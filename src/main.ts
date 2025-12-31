@@ -1,18 +1,22 @@
 import './style.css'
 import * as THREE from 'three'
 
+// Viteのベースパスを考慮したパスを生成（テクスチャと音声ファイルで使用）
+const baseUrl = import.meta.env.BASE_URL
+
 // テクスチャローダー
 const textureLoader = new THREE.TextureLoader()
 
 // テクスチャの読み込み（publicフォルダのテクスチャを使用）
+
 // 地面のテクスチャ（paper）
-const groundTexture = textureLoader.load('/paper_beiz_00063.jpg')
+const groundTexture = textureLoader.load(`${baseUrl}paper_beiz_00063.jpg`)
 groundTexture.wrapS = THREE.RepeatWrapping
 groundTexture.wrapT = THREE.RepeatWrapping
 groundTexture.repeat.set(20, 20) // テクスチャの繰り返し
 
 // 山のテクスチャ（paper）
-const mountainTexture = textureLoader.load('/paper_beiz_00063.jpg')
+const mountainTexture = textureLoader.load(`${baseUrl}paper_beiz_00063.jpg`)
 mountainTexture.wrapS = THREE.RepeatWrapping
 mountainTexture.wrapT = THREE.RepeatWrapping
 mountainTexture.repeat.set(2, 2)
@@ -21,7 +25,7 @@ mountainTexture.repeat.set(2, 2)
 const scene = new THREE.Scene()
 
 // 空のテクスチャ（sky）- スカイボックスとして使用
-const skyTexture = textureLoader.load('/sky_beiz_00008.jpg')
+const skyTexture = textureLoader.load(`${baseUrl}sky_beiz_00008.jpg`)
 // テクスチャを繰り返し表示できるように設定（半分のサイズで表示）
 skyTexture.wrapS = THREE.RepeatWrapping
 skyTexture.wrapT = THREE.RepeatWrapping
@@ -83,11 +87,11 @@ const gravity = -9.8 // 重力加速度（m/s²）
 const baseArrowSpeed = 30 // 基本の矢の速度（m/s）
 
 // 音声ファイル
-const horseSound = new Audio('/gyarop.mp3')
+const horseSound = new Audio(`${baseUrl}gyarop.mp3`)
 horseSound.loop = true // 馬の足音はループ再生
-horseSound.volume = 0.5
+horseSound.volume = 0.3 // 音量を控えめに
 
-const arrowSound = new Audio('/VSQSE_0381_Japanese_arrow_02.mp3')
+const arrowSound = new Audio(`${baseUrl}VSQSE_0381_Japanese_arrow_02.mp3`)
 arrowSound.volume = 0.7
 
 // 矢の効果音の前半と後半の時間を取得（後で設定）
@@ -117,8 +121,6 @@ if (!appElement) {
 appElement?.appendChild(renderer.domElement)
 
 // canvasが正しく追加されたか確認
-console.log('Canvas要素:', renderer.domElement)
-console.log('Canvasサイズ:', renderer.domElement.width, 'x', renderer.domElement.height)
 
 // ライトの追加
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.4)
@@ -194,14 +196,14 @@ const mountainPositions: Array<{ x: number; y: number; z: number; scale: number 
 
 // コースの左側に山を配置
 for (let z = courseStartZ; z >= courseEndZ; z -= 15) {
-  const x = -8 + Math.random() * 3 // -8mから-5mの範囲
+  const x = -12 + Math.random() * 3 // -12mから-9mの範囲（少し離す）
   const scale = 3 + Math.random() * 4 // 3mから7mの高さ
   mountainPositions.push({ x, y: 0, z, scale })
 }
 
 // コースの右側に山を配置（的の反対側）
 for (let z = courseStartZ; z >= courseEndZ; z -= 15) {
-  const x = 8 + Math.random() * 3 // 8mから11mの範囲
+  const x = 12 + Math.random() * 3 // 12mから15mの範囲（少し離す）
   const scale = 3 + Math.random() * 4 // 3mから7mの高さ
   mountainPositions.push({ x, y: 0, z, scale })
 }
@@ -211,7 +213,7 @@ const targetPositions = [-30, -50, -70] // 3つの的の位置
 targetPositions.forEach(targetZ => {
   // 的の後ろ（右側のさらに右）
   for (let i = 0; i < 3; i++) {
-    const x = 6 + Math.random() * 4 // 6mから10mの範囲
+    const x = 10 + Math.random() * 4 // 10mから14mの範囲（少し離す）
     const z = targetZ + (Math.random() - 0.5) * 10 // 的の前後5mの範囲
     const scale = 2 + Math.random() * 3 // 2mから5mの高さ
     mountainPositions.push({ x, y: 0, z, scale })
@@ -229,14 +231,14 @@ const largeMountainPositions: Array<{ x: number; y: number; z: number; scale: nu
 
 // コースの左側の遠くに大きな山を配置
 for (let z = -50; z >= -150; z -= 20) {
-  const x = -15 + Math.random() * 5 // -15mから-10mの範囲（コースから離れた位置）
+  const x = -18 + Math.random() * 5 // -18mから-13mの範囲（コースから離れた位置）
   const scale = 8 + Math.random() * 6 // 8mから14mの高さ（大きい山）
   largeMountainPositions.push({ x, y: 0, z, scale })
 }
 
 // コースの右側の遠くに大きな山を配置（的の反対側）
 for (let z = -50; z >= -150; z -= 20) {
-  const x = 15 + Math.random() * 5 // 15mから20mの範囲（コースから離れた位置）
+  const x = 18 + Math.random() * 5 // 18mから23mの範囲（コースから離れた位置）
   const scale = 8 + Math.random() * 6 // 8mから14mの高さ（大きい山）
   largeMountainPositions.push({ x, y: 0, z, scale })
 }
@@ -266,12 +268,12 @@ for (let z = -20; z >= -180; z -= 25) {
   if (isNearTarget) continue
   
   // 左側に配置
-  const xLeft = -12 + Math.random() * 3
+  const xLeft = -15 + Math.random() * 3 // 少し離す
   const scaleLeft = 8 + Math.random() * 6
   largeMountainPositions.push({ x: xLeft, y: 0, z, scale: scaleLeft })
   
-  // 右側に配置（的の反対側、x=3より右）
-  const xRight = 8 + Math.random() * 5
+  // 右側に配置（的の反対側、x=-2より右）
+  const xRight = 10 + Math.random() * 5 // 少し離す
   const scaleRight = 8 + Math.random() * 6
   largeMountainPositions.push({ x: xRight, y: 0, z, scale: scaleRight })
 }
@@ -319,13 +321,11 @@ function findNearestTarget(): THREE.Group | null {
 // 的の方向を計算して目標回転を設定
 function updateTargetRotation() {
   if (!gameStarted || gameEnded) {
-    console.log('updateTargetRotation: ゲーム未開始または終了', { gameStarted, gameEnded })
     return
   }
   
   const nearestTarget = findNearestTarget()
   if (!nearestTarget) {
-    console.log('updateTargetRotation: 的が見つかりません', { targetsLength: targets.length })
     return
   }
   
@@ -350,28 +350,12 @@ function updateTargetRotation() {
   // 目標回転を設定（±60度に制限）
   targetRotation.horizontal = horizontalRotation
   targetRotation.vertical = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, verticalRotation))
-  
-  // デバッグログ（毎フレーム出力、後で削除）
-  console.log('=== 的追従デバッグ ===')
-  console.log('カメラ位置:', camera.position)
-  console.log('的の位置:', targetPosition)
-  console.log('方向ベクトル:', direction)
-  console.log('目標水平回転:', horizontalRotation, 'ラジアン (', (horizontalRotation * 180 / Math.PI).toFixed(2), '度)')
-  console.log('目標垂直回転:', verticalRotation, 'ラジアン (', (verticalRotation * 180 / Math.PI).toFixed(2), '度)')
-  console.log('現在の水平回転:', cameraRotation.horizontal, 'ラジアン (', (cameraRotation.horizontal * 180 / Math.PI).toFixed(2), '度)')
-  console.log('現在の垂直回転:', cameraRotation.vertical, 'ラジアン (', (cameraRotation.vertical * 180 / Math.PI).toFixed(2), '度)')
-  console.log('回転速度:', rotationVelocity)
-  console.log('==================')
 }
 
 // カメラの回転を更新する関数（慣性付き）
 function updateCameraRotation(deltaTime: number = 0.016) {
   // デバッグモードでない場合、または手動操作中でない場合、自動追従を有効化
   if ((!debugMode || !isDragging) && gameStarted && !gameEnded) {
-    // デバッグ: ゲーム状態を確認
-    if (Math.random() < 0.01) {
-      console.log('ゲーム状態:', { gameStarted, gameEnded, isDragging })
-    }
     updateTargetRotation()
     
     // 目標回転との差を計算
@@ -429,8 +413,8 @@ updateCameraRotation()
 function createTarget(position: { x: number; y: number; z: number }): THREE.Group {
   const targetGroup = new THREE.Group()
   
-  // 的の板（50cmの円盤、厚さ5cm）
-  const boardRadius = 0.25 // 50cm = 0.5m / 2
+  // 的の板（50cmの円盤、厚さ5cm）- 1.5倍サイズ
+  const boardRadius = 0.25 * 1.5 // 50cm * 1.5 = 0.375m (半径)
   const boardThickness = 0.05
   const boardGeometry = new THREE.CylinderGeometry(boardRadius, boardRadius, boardThickness, 32)
   const boardMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 }) // 茶色の板
@@ -464,12 +448,12 @@ function createTarget(position: { x: number; y: number; z: number }): THREE.Grou
   const innerRing = new THREE.Shape()
   innerRing.absarc(0, 0, boardRadius * 0.3, 0, Math.PI * 2, false)
   const innerHole = new THREE.Path()
-  innerHole.absarc(0, 0, 0.05, 0, Math.PI * 2, true)
+  innerHole.absarc(0, 0, 0.05 * 1.5, 0, Math.PI * 2, true) // 1.5倍サイズ
   innerRing.holes.push(innerHole)
   
   // 中心の黒い円
   const centerShape = new THREE.Shape()
-  centerShape.absarc(0, 0, 0.05, 0, Math.PI * 2, false)
+  centerShape.absarc(0, 0, 0.05 * 1.5, 0, Math.PI * 2, false) // 1.5倍サイズ
   
   // 各パーツを別々のメッシュとして作成（色が異なるため）
   // 外側の白いリング
@@ -615,8 +599,9 @@ function releaseArrow(releaseX?: number, releaseY?: number) {
     direction.applyAxisAngle(new THREE.Vector3(1, 0, 0), cameraRotation.vertical)
   }
   
-  // 矢の速度を計算（チャージ量に応じて）
-  const speed = baseArrowSpeed * (0.5 + chargeAmount * 0.5) // 15-30 m/s
+  // 矢の速度を計算（チャージ量に応じて、さらに弱体化）
+  // チャージ量が少ない時はより遅く、多い時は速く
+  const speed = baseArrowSpeed * (0.1 + chargeAmount * 0.6) // 3-21 m/s（以前は6-30 m/s）
   const velocity = direction.multiplyScalar(speed)
   
   // 矢を作成
@@ -671,18 +656,18 @@ function releaseArrow(releaseX?: number, releaseY?: number) {
 // 最初の的: スタートから40m、20m間隔で配置
 const targets: THREE.Group[] = []
 
-// 1つ目の的（スタートから40m、右側）
+// 1つ目の的（スタートから30m、右側）- カメラから2m離す
 const target1 = createTarget({ x: 3, y: 1, z: firstTargetZ })
 scene.add(target1)
 targets.push(target1)
 
-// 2つ目の的（1つ目から20m先、右側）
-const target2 = createTarget({ x: 3, y: 1, z: firstTargetZ - targetInterval })
+// 2つ目の的（1つ目から30m先、右側）- カメラから3m離す
+const target2 = createTarget({ x: 4, y: 1, z: firstTargetZ - targetInterval })
 scene.add(target2)
 targets.push(target2)
 
-// 3つ目の的（2つ目から20m先、右側）
-const target3 = createTarget({ x: 3, y: 1, z: firstTargetZ - (targetInterval * 2) })
+// 3つ目の的（2つ目から30m先、右側）- カメラから4m離す
+const target3 = createTarget({ x: 5, y: 1, z: firstTargetZ - (targetInterval * 2) })
 scene.add(target3)
 targets.push(target3)
 
@@ -808,7 +793,6 @@ if (debugMode) {
     if (e.code === 'Space') {
       e.preventDefault()
       isCameraMoving = !isCameraMoving
-      console.log('カメラ移動:', isCameraMoving ? '再開' : '停止')
     }
   })
 }
@@ -826,6 +810,16 @@ function animate() {
   if (isCameraMoving && gameStarted && !gameEnded) {
     camera.position.z -= cameraSpeed * deltaTime
     gameTime += deltaTime // ゲーム時間を更新
+    
+    // 馬の足音を再生（まだ再生されていない場合）
+    if (horseSound.paused && gameStarted) {
+      horseSound.play().catch(e => console.log('音声再生エラー:', e))
+    }
+  } else {
+    // ゲームが停止したら馬の足音も停止
+    if (!horseSound.paused) {
+      horseSound.pause()
+    }
   }
   
   // 馬の走行を再現する上下動（全波整流したサイン波）
@@ -879,19 +873,95 @@ function animate() {
       const targetPosition = new THREE.Vector3()
       target.getWorldPosition(targetPosition)
       const distance = arrow.position.distanceTo(targetPosition)
-      const targetRadius = 0.25 // 的の半径（50cm = 0.5m / 2）
+      const targetRadius = 0.25 * 1.5 // 的の半径（1.5倍サイズ）
+      const innerRadius = targetRadius * 0.5 // 中央部分の半径（的の50%）
       
       if (distance < targetRadius + 0.1) {
         // 的に当たった
         arrow.isStopped = true
         arrow.hitTarget = target
-        // 矢を的の位置に固定
-        arrow.position.copy(targetPosition)
-        arrow.group.position.copy(targetPosition)
-        // 矢を的の中心に固定（後で調整可能）
-        arrow.group.attach(target)
-        score += Math.floor(chargeAmount * 100) // チャージ量に応じてスコア
-        console.log('的命中！スコア:', score)
+        
+        // デバッグログ：衝突時の情報
+        console.log('=== 矢の命中デバッグ ===')
+        console.log('矢の位置（衝突時）:', arrow.position.clone())
+        console.log('的の中心位置:', targetPosition.clone())
+        console.log('距離:', distance)
+        console.log('的の半径:', targetRadius)
+        
+        // 矢を実際の命中位置に配置（的の表面に正確に配置）
+        // 的の中心から矢の位置への方向ベクトルを計算
+        const hitDirection = arrow.position.clone().sub(targetPosition)
+        const hitDistance = hitDirection.length()
+        console.log('hitDirection（正規化前）:', hitDirection.clone())
+        console.log('hitDistance:', hitDistance)
+        
+        // 矢を実際の衝突位置に配置（的の表面に正確に配置）
+        let hitWorldPosition: THREE.Vector3
+        if (hitDistance > 0) {
+          hitDirection.normalize()
+          console.log('hitDirection（正規化後）:', hitDirection.clone())
+          // 的の板の厚みを考慮
+          const boardThickness = 0.05 // 的の板の厚み
+          
+          // 矢の実際の衝突位置を的の表面に合わせる
+          // 矢が的の半径より内側に当たっている場合、実際の衝突位置を使用
+          // 矢が的の半径より外側に当たっている場合、的の表面に合わせる
+          const actualHitDistance = Math.min(hitDistance, targetRadius)
+          
+          // 矢を的の板の表面（前面）に配置する
+          // 板の中心から板の表面までの距離は、板の厚みの半分（0.025m）
+          // 矢の実際の衝突位置を板の表面に合わせるため、actualHitDistanceから板の厚みの半分を引く
+          const surfaceOffset = hitDirection.multiplyScalar(actualHitDistance - boardThickness / 2)
+          hitWorldPosition = targetPosition.clone().add(surfaceOffset)
+          console.log('hitDistance:', hitDistance)
+          console.log('actualHitDistance:', actualHitDistance)
+          console.log('surfaceOffset:', surfaceOffset.clone())
+          console.log('hitWorldPosition（計算後）:', hitWorldPosition.clone())
+        } else {
+          // 距離が0の場合は中心に配置
+          console.log('距離が0のため中心に配置')
+          hitWorldPosition = targetPosition.clone()
+        }
+        
+        // 矢を的のグループに追加する前に、的のローカル座標系に変換
+        // 的のワールド座標を考慮して、矢の位置を的のローカル座標に変換
+        const targetWorldMatrix = new THREE.Matrix4()
+        target.updateMatrixWorld(true)
+        targetWorldMatrix.copy(target.matrixWorld)
+        const targetInverseMatrix = new THREE.Matrix4().copy(targetWorldMatrix).invert()
+        
+        // ワールド座標を的のローカル座標に変換
+        const hitLocalPosition = hitWorldPosition.clone().applyMatrix4(targetInverseMatrix)
+        console.log('hitLocalPosition（的のローカル座標）:', hitLocalPosition.clone())
+        
+        // 矢の位置をローカル座標に設定
+        arrow.group.position.copy(hitLocalPosition)
+        arrow.position.copy(hitWorldPosition) // arrow.positionはワールド座標を保持
+        
+        console.log('arrow.group.position（ローカル座標設定後）:', arrow.group.position.clone())
+        
+        // 矢を的のグループに追加（的と一緒に動くように）
+        console.log('矢を的のグループに追加')
+        target.add(arrow.group)
+        
+        // 追加後の位置を確認
+        const finalPosition = new THREE.Vector3()
+        arrow.group.getWorldPosition(finalPosition)
+        console.log('最終的な矢の位置（getWorldPosition）:', finalPosition.clone())
+        console.log('期待される位置（hitWorldPosition）:', hitWorldPosition.clone())
+        console.log('位置の差:', finalPosition.clone().sub(hitWorldPosition))
+        console.log('==================')
+        
+        // スコア計算：中央付近（内側）なら10点、周辺（外側）なら3点
+        let points = 0
+        if (distance < innerRadius) {
+          // 中央付近に当たった
+          points = 10
+        } else {
+          // 周辺に当たった
+          points = 3
+        }
+        score += points
         
         // 命中音（後半を再生）- 命中した時のみ再生
         if (arrowSoundDuration > 0) {
@@ -945,6 +1015,7 @@ const endScreen = document.getElementById('endScreen')!
 const startButton = document.getElementById('startButton')!
 const restartButton = document.getElementById('restartButton')!
 const scoreValue = document.getElementById('scoreValue')!
+const fortuneDisplay = document.getElementById('fortuneDisplay')!
 
 // ゲーム開始
 function startGame() {
@@ -962,8 +1033,27 @@ function startGame() {
   targetRotation = { horizontal: 0, vertical: 0 }
   rotationVelocity = { horizontal: 0, vertical: 0 }
   score = 0
-  // 既存の矢を削除
-  arrows.forEach(arrow => scene.remove(arrow.group))
+  // 既存の矢を削除（的のグループに追加された矢も含む）
+  arrows.forEach(arrow => {
+    // 矢が的のグループに追加されている場合は、まず的のグループから削除
+    if (arrow.hitTarget) {
+      arrow.hitTarget.remove(arrow.group)
+    } else {
+      // シーンに直接追加されている場合はシーンから削除
+      scene.remove(arrow.group)
+    }
+    // 矢のグループを破棄
+    arrow.group.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.geometry.dispose()
+        if (Array.isArray(child.material)) {
+          child.material.forEach(material => material.dispose())
+        } else {
+          child.material.dispose()
+        }
+      }
+    })
+  })
   arrows.length = 0
   // 馬の足音を停止
   horseSound.pause()
@@ -974,6 +1064,21 @@ function startGame() {
 function showEndScreen() {
   endScreen.style.display = 'flex'
   scoreValue.textContent = score.toString()
+  
+  // スコアに応じた運勢を表示
+  let fortune = ''
+  if (score === 0) {
+    fortune = '凶'
+  } else if (score <= 3) {
+    fortune = '末吉'
+  } else if (score <= 6) {
+    fortune = '小吉'
+  } else if (score <= 9) {
+    fortune = '中吉'
+  } else {
+    fortune = '大吉'
+  }
+  fortuneDisplay.textContent = fortune
 }
 
 // ゲーム再開
@@ -991,6 +1096,33 @@ function restartGame() {
   targetRotation = { horizontal: 0, vertical: 0 }
   rotationVelocity = { horizontal: 0, vertical: 0 }
   score = 0
+  
+  // 既存の矢を削除（的のグループに追加された矢も含む）
+  arrows.forEach(arrow => {
+    // 矢が的のグループに追加されている場合は、まず的のグループから削除
+    if (arrow.hitTarget) {
+      arrow.hitTarget.remove(arrow.group)
+    } else {
+      // シーンに直接追加されている場合はシーンから削除
+      scene.remove(arrow.group)
+    }
+    // 矢のグループを破棄
+    arrow.group.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.geometry.dispose()
+        if (Array.isArray(child.material)) {
+          child.material.forEach(material => material.dispose())
+        } else {
+          child.material.dispose()
+        }
+      }
+    })
+  })
+  arrows.length = 0
+  
+  // 馬の足音を停止
+  horseSound.pause()
+  horseSound.currentTime = 0
 }
 
 // ボタンイベント
@@ -999,10 +1131,3 @@ restartButton.addEventListener('click', restartGame)
 
 // アニメーション開始
 animate()
-
-// デバッグ情報
-console.log('流鏑馬ゲーム - WebGL環境が正常にセットアップされました！')
-console.log('カメラ位置:', camera.position)
-console.log('カメラ回転:', camera.rotation)
-console.log('レンダラーサイズ:', renderer.getSize(new THREE.Vector2()))
-console.log('シーン内のオブジェクト数:', scene.children.length)
