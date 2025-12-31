@@ -1,5 +1,6 @@
 import './style.css'
 import * as THREE from 'three'
+import { shaders } from './shaders/loadShaders'
 
 // Viteのベースパスを考慮したパスを生成（テクスチャと音声ファイルで使用）
 const baseUrl = import.meta.env.BASE_URL
@@ -34,6 +35,7 @@ skyTexture.repeat.set(2, 2) // 2×2回繰り返して、半分のサイズで表
 const skyGeometry = new THREE.SphereGeometry(120, 32, 32) // 半径120mの球体（レンダリング距離内）
 const skyMaterial = new THREE.MeshBasicMaterial({
   map: skyTexture,
+  color: 0xE0E8F0, // 空をほんの少し暗く（薄いグレーを適用）
   side: THREE.BackSide, // 内側から見る
   fog: false, // フォグの影響を受けない
   depthWrite: false, // 深度書き込みを無効化
@@ -44,7 +46,7 @@ const sky = new THREE.Mesh(skyGeometry, skyMaterial)
 scene.add(sky)
 
 // フォグを追加（地面の端が見えないように）
-scene.fog = new THREE.Fog(0x87CEEB, 30, 120) // 色、近距離、遠距離（レンダリング距離に合わせて調整）
+scene.fog = new THREE.Fog(0x7AB8D0, 30, 120) // 色をほんの少し暗く、近距離、遠距離（レンダリング距離に合わせて調整）
 
 // カメラのセットアップ（FPS視点：騎手の視点）
 const camera = new THREE.PerspectiveCamera(
@@ -108,6 +110,9 @@ renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
 renderer.shadowMap.enabled = true
 renderer.shadowMap.type = THREE.PCFSoftShadowMap
+// トーンマッピングを有効化
+renderer.toneMapping = THREE.ACESFilmicToneMapping
+renderer.toneMappingExposure = 1.2
 // オブジェクトのソートを無効化してちらつきを防ぐ
 renderer.sortObjects = false
 
@@ -118,16 +123,187 @@ if (!appElement) {
 }
 appElement?.appendChild(renderer.domElement)
 
+// ポストプロセス用のレンダーターゲット
+const rtWidth = window.innerWidth
+const rtHeight = window.innerHeight
+const renderTargetA = new THREE.WebGLRenderTarget(rtWidth, rtHeight)
+const renderTargetB = new THREE.WebGLRenderTarget(rtWidth, rtHeight)
+
+// ブルームエフェクト用のシェーダーマテリアル
+const bloomMaterial = new THREE.ShaderMaterial({
+  uniforms: {
+    tDiffuse: { value: null },
+    uResolution: { value: new THREE.Vector2(rtWidth, rtHeight) },
+    uIntensity: { value: 0.8 },
+    uThreshold: { value: 0.9 } // より明るい部分のみ抽出
+  },
+  vertexShader: shaders.bloom.vert,
+  fragmentShader: shaders.bloom.frag
+})
+
+// ブラーエフェクト用のシェーダーマテリアル
+const blurMaterial = new THREE.ShaderMaterial({
+  uniforms: {
+    tDiffuse: { value: null },
+    uDirection: { value: new THREE.Vector2(1, 0) },
+    uResolution: { value: new THREE.Vector2(rtWidth, rtHeight) }
+  },
+  vertexShader: shaders.blur.vert,
+  fragmentShader: shaders.blur.frag
+})
+
+// 最終合成用のマテリアル
+const finalMaterial = new THREE.ShaderMaterial({
+  uniforms: {
+    tDiffuse: { value: null },
+    tBloom: { value: null },
+    uIntensity: { value: 0.15 } // エフェクトをさらに抑える
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform sampler2D tBloom;
+    uniform float uIntensity;
+    varying vec2 vUv;
+    
+    void main() {
+      vec4 sceneColor = texture2D(tDiffuse, vUv);
+      vec4 bloomColor = texture2D(tBloom, vUv);
+      gl_FragColor = sceneColor + bloomColor * uIntensity;
+    }
+  `
+})
+
+// フルスクリーン用のジオメトリ
+const fullscreenQuad = new THREE.PlaneGeometry(2, 2)
+const bloomQuad = new THREE.Mesh(fullscreenQuad, bloomMaterial)
+const blurQuad = new THREE.Mesh(fullscreenQuad, blurMaterial)
+const finalQuad = new THREE.Mesh(fullscreenQuad, finalMaterial)
+const postProcessScene = new THREE.Scene()
+postProcessScene.add(bloomQuad)
+postProcessScene.add(blurQuad)
+postProcessScene.add(finalQuad)
+
+// パーティクルシステム
+const particles: Array<{
+  position: THREE.Vector3
+  velocity: THREE.Vector3
+  life: number
+  maxLife: number
+  color: THREE.Color
+  size: number
+}> = []
+
+// パーティクルジオメトリとマテリアル
+const particleGeometry = new THREE.BufferGeometry()
+const particleCount = 1000
+const positions = new Float32Array(particleCount * 3)
+const offsets = new Float32Array(particleCount * 3)
+const velocities = new Float32Array(particleCount * 3)
+const colors = new Float32Array(particleCount * 3)
+const sizes = new Float32Array(particleCount)
+const lives = new Float32Array(particleCount)
+
+for (let i = 0; i < particleCount; i++) {
+  positions[i * 3] = 0
+  positions[i * 3 + 1] = 0
+  positions[i * 3 + 2] = 0
+  offsets[i * 3] = 0
+  offsets[i * 3 + 1] = 0
+  offsets[i * 3 + 2] = 0
+  velocities[i * 3] = 0
+  velocities[i * 3 + 1] = 0
+  velocities[i * 3 + 2] = 0
+  colors[i * 3] = 1
+  colors[i * 3 + 1] = 0.5
+  colors[i * 3 + 2] = 0
+  sizes[i] = 0.1
+  lives[i] = 0
+}
+
+particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+particleGeometry.setAttribute('aOffset', new THREE.BufferAttribute(offsets, 3))
+particleGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+
+const particleMaterial = new THREE.ShaderMaterial({
+  uniforms: {
+    uTime: { value: 0 },
+    uLife: { value: 0 },
+    uColor: { value: new THREE.Color(1, 0.5, 0) },
+    uSize: { value: 0.1 },
+    uVelocity: { value: new THREE.Vector3(0, 0, 0) }
+  },
+  vertexShader: shaders.particle.vert,
+  fragmentShader: shaders.particle.frag,
+  transparent: true,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending
+})
+
+const particleSystem = new THREE.Points(particleGeometry, particleMaterial)
+scene.add(particleSystem)
+
+// パーティクルを発射する関数
+let nextParticleIndex = 0
+function emitParticles(position: THREE.Vector3, color: THREE.Color, count: number = 30) {
+  for (let i = 0; i < count; i++) {
+    const index = nextParticleIndex % particleCount
+    nextParticleIndex++
+    
+    const particle = {
+      position: position.clone(),
+      velocity: new THREE.Vector3(
+        (Math.random() - 0.5) * 5,
+        (Math.random() - 0.5) * 5,
+        (Math.random() - 0.5) * 5
+      ),
+      life: 1.0,
+      maxLife: 1.0,
+      color: color.clone(),
+      size: 0.1 + Math.random() * 0.1
+    }
+    
+    particles[index] = particle
+    
+    offsets[index * 3] = position.x
+    offsets[index * 3 + 1] = position.y
+    offsets[index * 3 + 2] = position.z
+    velocities[index * 3] = particle.velocity.x
+    velocities[index * 3 + 1] = particle.velocity.y
+    velocities[index * 3 + 2] = particle.velocity.z
+    colors[index * 3] = color.r
+    colors[index * 3 + 1] = color.g
+    colors[index * 3 + 2] = color.b
+    sizes[index] = particle.size
+    lives[index] = 1.0
+  }
+  
+  particleGeometry.attributes.aOffset.needsUpdate = true
+  particleGeometry.attributes.color.needsUpdate = true
+  particleGeometry.attributes.position.needsUpdate = true
+}
+
 // canvasが正しく追加されたか確認
 
-// ライトの追加
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.4)
+// ライトの追加（控えめに）
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.5) // 控えめに
 scene.add(ambientLight)
 
 // メインの方向光（真上より少し傾けた位置）
-const directionalLight = new THREE.DirectionalLight(0xffffff, 0.9)
+const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0) // コントラストを抑える
 directionalLight.position.set(5, 15, 5) // 真上より少し傾けた位置
 directionalLight.castShadow = true
+
+// 補助ライト（的と山を明るく照らす）
+const fillLight = new THREE.DirectionalLight(0xffffff, 0.4) // 控えめに
+fillLight.position.set(-5, 10, -5)
+scene.add(fillLight)
 
 // 影の設定
 directionalLight.shadow.mapSize.width = 2048
@@ -161,7 +337,7 @@ const groundWidth = 300 // 幅（左右、長さと同じ300mに延長）
 const groundGeometry = new THREE.PlaneGeometry(groundWidth, extendedGroundLength)
 const groundMaterial = new THREE.MeshStandardMaterial({ 
   map: groundTexture,
-  color: 0x90EE90 // テクスチャの色調を調整
+  color: 0x6B8E23 // 地面を暗く（オリーブ色）
 })
 const ground = new THREE.Mesh(groundGeometry, groundMaterial)
 ground.rotation.x = -Math.PI / 2
@@ -177,8 +353,10 @@ function createMountain(position: { x: number; y: number; z: number }, scale: nu
   const mountainGeometry = new THREE.ConeGeometry(scale * 0.5, scale, 16, 1) // セグメント数を8から16に増加
   const mountainMaterial = new THREE.MeshStandardMaterial({ 
     map: mountainTexture,
-    color: 0x6B8E23, // オリーブ色（テクスチャの色調を調整）
-    flatShading: false // 滑らかな表面にする
+    color: 0x8FBC8F, // より明るいオリーブ色
+    flatShading: false, // 滑らかな表面にする
+    emissive: 0x000000, // 発光なし
+    emissiveIntensity: 0.0
   })
   const mountain = new THREE.Mesh(mountainGeometry, mountainMaterial)
   mountain.position.set(position.x, position.y + scale / 2, position.z) // 山の底が地面に
@@ -415,7 +593,11 @@ function createTarget(position: { x: number; y: number; z: number }): THREE.Grou
   const boardRadius = 0.25 * 1.5 // 50cm * 1.5 = 0.375m (半径)
   const boardThickness = 0.05
   const boardGeometry = new THREE.CylinderGeometry(boardRadius, boardRadius, boardThickness, 32)
-  const boardMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 }) // 茶色の板
+  const boardMaterial = new THREE.MeshStandardMaterial({ 
+    color: 0xD2691E, // 的を明るく（明るい茶色）
+    emissive: 0x000000,
+    emissiveIntensity: 0.0
+  })
   const board = new THREE.Mesh(boardGeometry, boardMaterial)
   board.rotation.z = Math.PI / 2 // 板を鉛直にする（Y軸周りに90度回転）
   board.castShadow = true
@@ -493,16 +675,49 @@ function createTarget(position: { x: number; y: number; z: number }): THREE.Grou
   // 的の支柱（地面から的の中心まで）
   const poleHeight = position.y // 的の高さに合わせる
   const poleGeometry = new THREE.CylinderGeometry(0.03, 0.03, poleHeight, 8)
-  const poleMaterial = new THREE.MeshStandardMaterial({ color: 0x654321 })
+  const poleMaterial = new THREE.MeshStandardMaterial({ 
+    color: 0x8B4513, // より明るい茶色
+    emissive: 0x000000,
+    emissiveIntensity: 0.0
+  })
   const pole = new THREE.Mesh(poleGeometry, poleMaterial)
   pole.position.y = -poleHeight / 2 // 支柱の中心を地面に合わせる
   pole.castShadow = true
   targetGroup.add(pole)
   
+  // 命中時のリングエフェクトを保存する配列
+  ;(targetGroup as any).hitRings = []
+  
   // 位置を設定
   targetGroup.position.set(position.x, position.y, position.z)
   
   return targetGroup
+}
+
+// 命中時のリングエフェクトを作成する関数
+function createHitRing(target: THREE.Group, color: THREE.Color): THREE.Mesh {
+  const boardRadius = 0.25 * 1.5 // 的の半径
+  const ringGeometry = new THREE.RingGeometry(boardRadius * 1.1, boardRadius * 1.3, 32)
+  const ringMaterial = new THREE.MeshBasicMaterial({
+    color: color,
+    transparent: true,
+    opacity: 1.0,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+  })
+  const ring = new THREE.Mesh(ringGeometry, ringMaterial)
+  ring.rotation.y = Math.PI / 2
+  ring.position.set(-0.05 - 0.02, 0, 0) // 的の前に配置
+  
+  // エフェクトの状態を保存
+  ;(ring as any).startTime = gameTime
+  ;(ring as any).startScale = 1.0
+  ;(ring as any).targetScale = 2.5
+  ;(ring as any).duration = 0.8 // 0.8秒でフェードアウト
+  
+  target.add(ring)
+  return ring
 }
 
 // 矢を作成する関数
@@ -538,6 +753,31 @@ function createArrow(): THREE.Group {
   arrowGroup.add(fletching2)
   
   arrowGroup.castShadow = true
+  
+  // 矢のグローエフェクト（発光する軌跡）
+  const trailGeometry = new THREE.CylinderGeometry(0.015, 0.015, 0.6, 8)
+  const trailMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uLife: { value: 1.0 },
+      uColor: { value: new THREE.Color(1, 0.5, 0) },
+      uSpeed: { value: 5.0 }
+    },
+    vertexShader: shaders.arrowTrail.vert,
+    fragmentShader: shaders.arrowTrail.frag,
+    transparent: true,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+  })
+  const trail = new THREE.Mesh(trailGeometry, trailMaterial)
+  trail.rotation.x = Math.PI / 2
+  trail.position.z = -0.3
+  arrowGroup.add(trail)
+  
+  // トレイルマテリアルへの参照を保存
+  ;(arrowGroup as any).trailMaterial = trailMaterial
+  
   return arrowGroup
 }
 
@@ -871,8 +1111,8 @@ function animate() {
         if (hitDistance > 0) {
           hitDirection.normalize()
           const boardThickness = 0.05
-          const actualHitDistance = Math.min(hitDistance, targetRadius)
-          const surfaceOffset = hitDirection.multiplyScalar(actualHitDistance - boardThickness / 2)
+          // 的の表面に矢を配置（的の中心から半径分の距離で表面に配置）
+          const surfaceOffset = hitDirection.multiplyScalar(targetRadius - boardThickness / 2)
           hitWorldPosition = targetPosition.clone().add(surfaceOffset)
         } else {
           hitWorldPosition = targetPosition.clone()
@@ -888,13 +1128,35 @@ function animate() {
         arrow.position.copy(hitWorldPosition)
         target.add(arrow.group)
         
+        // 的の表面での実際の命中位置から中心までの距離を計算（的の円盤上での距離）
+        // 的の板はZ軸周りに90度回転しているので、円盤はYZ平面にある
+        // 円盤上での距離は、YとZ成分の距離
+        const hitLocalY = hitLocalPosition.y
+        const hitLocalZ = hitLocalPosition.z
+        const hitLocalDistance = Math.sqrt(hitLocalY * hitLocalY + hitLocalZ * hitLocalZ)
+        
         let points = 0
-        if (distance < innerRadius) {
+        if (hitLocalDistance < innerRadius) {
           points = 5
         } else {
           points = 3
         }
         score += points
+        
+        // 命中時のパーティクルエフェクト
+        const hitColor = hitLocalDistance < innerRadius 
+          ? new THREE.Color(1, 0.8, 0) // 中央命中：金色
+          : new THREE.Color(1, 0.5, 0.2) // 周辺命中：オレンジ
+        emitParticles(hitWorldPosition, hitColor, 50)
+        
+        // 命中時のリングエフェクトを追加
+        const ringColor = hitLocalDistance < innerRadius 
+          ? new THREE.Color(1, 0.2, 0.2) // 中央命中：赤
+          : new THREE.Color(1, 0.9, 0.2) // 周辺命中：黄色
+        const hitRing = createHitRing(target, ringColor)
+        const hitRings = (target as any).hitRings || []
+        hitRings.push(hitRing)
+        ;(target as any).hitRings = hitRings
         
         // 命中音（後半を再生）- 命中した時のみ再生
         if (arrowSoundDuration > 0) {
@@ -932,7 +1194,98 @@ function animate() {
   directionalLight.shadow.camera.position.y += 20 // 少し上に配置
   directionalLight.shadow.camera.updateProjectionMatrix()
   
+  // シェーダーの時間を更新
+  const shaderTime = gameTime
+  
+  // 矢のトレイルマテリアルを更新
+  arrows.forEach(arrow => {
+    if (!arrow.isStopped && (arrow.group as any).trailMaterial) {
+      const trailMaterial = (arrow.group as any).trailMaterial
+      trailMaterial.uniforms.uTime.value = shaderTime
+    }
+  })
+  
+  // 命中時のリングエフェクトを更新
+  targets.forEach(target => {
+    // 命中時のリングエフェクトを更新
+    const hitRings = (target as any).hitRings || []
+    for (let i = hitRings.length - 1; i >= 0; i--) {
+      const ring = hitRings[i]
+      const elapsed = gameTime - (ring as any).startTime
+      const duration = (ring as any).duration
+      const startScale = (ring as any).startScale
+      const targetScale = (ring as any).targetScale
+      
+      if (elapsed < duration) {
+        // 拡大とフェードアウト
+        const progress = elapsed / duration
+        const scale = startScale + (targetScale - startScale) * progress
+        const opacity = 1.0 - progress
+        
+        ring.scale.set(scale, scale, scale)
+        if (ring.material instanceof THREE.MeshBasicMaterial) {
+          ring.material.opacity = opacity
+        }
+      } else {
+        // エフェクト終了、削除
+        target.remove(ring)
+        if (ring.geometry) ring.geometry.dispose()
+        if (ring.material) ring.material.dispose()
+        hitRings.splice(i, 1)
+      }
+    }
+    ;(target as any).hitRings = hitRings
+  })
+  
+  // パーティクルの更新
+  for (let i = 0; i < particleCount; i++) {
+    const particle = particles[i]
+    if (particle && particle.life > 0) {
+      particle.life -= deltaTime * 2
+      particle.position.add(particle.velocity.clone().multiplyScalar(deltaTime))
+      particle.velocity.y += gravity * deltaTime * 0.5
+      
+      offsets[i * 3] = particle.position.x
+      offsets[i * 3 + 1] = particle.position.y
+      offsets[i * 3 + 2] = particle.position.z
+      lives[i] = particle.life / particle.maxLife
+      sizes[i] = particle.size * (1 - particle.life / particle.maxLife)
+    } else {
+      lives[i] = 0
+      if (particle) {
+        offsets[i * 3] = 0
+        offsets[i * 3 + 1] = -1000
+        offsets[i * 3 + 2] = 0
+      }
+    }
+  }
+  
+  particleMaterial.uniforms.uTime.value = shaderTime
+  particleGeometry.attributes.aOffset.needsUpdate = true
+  particleGeometry.attributes.position.needsUpdate = true
+  
+  // ポストプロセス（ブルームエフェクト）- 軽量化
+  // 通常レンダリングを保存
+  renderer.setRenderTarget(renderTargetA)
   renderer.render(scene, camera)
+  const originalTexture = renderTargetA.texture
+  
+  // ブルーム抽出（より明るい部分のみ）
+  bloomMaterial.uniforms.tDiffuse.value = originalTexture
+  renderer.setRenderTarget(renderTargetB)
+  renderer.render(postProcessScene, new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1))
+  
+  // 軽いブラー（1回のみ、強度を下げる）
+  blurMaterial.uniforms.tDiffuse.value = renderTargetB.texture
+  blurMaterial.uniforms.uDirection.value.set(0.3, 0.3) // より弱いブラー
+  renderer.setRenderTarget(renderTargetA)
+  renderer.render(postProcessScene, new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1))
+  
+  // 最終合成（通常レンダリングを優先、グローは控えめに）
+  finalMaterial.uniforms.tDiffuse.value = originalTexture // 通常レンダリング（ぼやけていない）
+  finalMaterial.uniforms.tBloom.value = renderTargetA.texture // ブラー済みのブルーム
+  renderer.setRenderTarget(null)
+  renderer.render(postProcessScene, new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1))
 }
 
 // ウィンドウリサイズの処理
@@ -940,6 +1293,14 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight
   camera.updateProjectionMatrix()
   renderer.setSize(window.innerWidth, window.innerHeight)
+  
+  // レンダーターゲットのサイズも更新
+  const newWidth = window.innerWidth
+  const newHeight = window.innerHeight
+  renderTargetA.setSize(newWidth, newHeight)
+  renderTargetB.setSize(newWidth, newHeight)
+  bloomMaterial.uniforms.uResolution.value.set(newWidth, newHeight)
+  blurMaterial.uniforms.uResolution.value.set(newWidth, newHeight)
 })
 
 // 開始画面と終了画面の制御
