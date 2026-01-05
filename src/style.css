@@ -274,7 +274,7 @@ canvas {
 
 .reticle-line {
   position: fixed;
-  background-color: rgba(255, 255, 255, 0.35);
+  background-color: rgba(255, 255, 255, 0.2);
   pointer-events: none;
   z-index: 100;
 }
@@ -296,7 +296,7 @@ canvas {
   transform: translate(-50%, -50%);
   width: 100px;
   height: 100px;
-  border: 2px solid rgba(255, 255, 255, 0.35);
+  border: 2px solid rgba(255, 255, 255, 0.2);
   border-radius: 50%;
   transition: width 0.1s linear, height 0.1s linear;
 }
