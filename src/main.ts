@@ -295,7 +295,7 @@ function emitParticles(position: THREE.Vector3, color: THREE.Color, count: numbe
 // canvasが正しく追加されたか確認
 
 // ライトの追加（控えめに）
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.5) // 控えめに
+const ambientLight = new THREE.AmbientLight(0xffffff, 1.0) // 少し明るく
 scene.add(ambientLight)
 
 // メインの方向光（真上より少し傾けた位置）
@@ -797,12 +797,49 @@ function calculateChargeAmount(elapsedTime: number): number {
   }
 }
 
+// レティクルの位置を更新する関数
+function updateReticlePosition(x: number, y: number) {
+  const reticle = document.getElementById('reticle')
+  if (reticle) {
+    reticle.style.left = x + 'px'
+    reticle.style.top = y + 'px'
+    reticle.style.transform = 'translate(-50%, -50%)'
+  }
+  
+  // 縦横線の位置も更新（レティクルと同じ位置に配置）
+  const horizontalLine = document.querySelector('.reticle-line-horizontal')
+  const verticalLine = document.querySelector('.reticle-line-vertical')
+  if (horizontalLine instanceof HTMLElement) {
+    // 水平線: left:0, top:0から始めて、絶対値で移動
+    // レティクルが左上(0,0)の時に合うようにする
+    horizontalLine.style.left = '0'
+    horizontalLine.style.top = '0'
+    horizontalLine.style.width = (window.innerWidth * 2) + 'px'
+    // 中心を(x, y)に配置: x-window.innerWidth移動、y-0.5px移動
+    horizontalLine.style.transform = `translateX(-100vw)`
+  }
+  if (verticalLine instanceof HTMLElement) {
+    // 垂直線: left:0, top:0から始めて、絶対値で移動
+    // レティクルが左上(0,0)の時に合うようにする
+    verticalLine.style.left = '0'
+    verticalLine.style.top = '0'
+    verticalLine.style.height = (window.innerHeight * 2) + 'px'
+    // 中心を(x, y)に配置: x-0.5px移動、y-window.innerHeight移動
+    verticalLine.style.transform = `translateY(-100vh)`
+  }
+}
+
 // チャージを開始
-function startCharging() {
+function startCharging(startX?: number, startY?: number) {
   if (!gameStarted || gameEnded || isCharging) return
   isCharging = true
   chargeStartTime = gameTime
   chargeAmount = 0
+  
+  // 開始位置にレティクルを配置
+  if (startX !== undefined && startY !== undefined) {
+    updateReticlePosition(startX, startY)
+  }
 }
 
 // チャージを終了して矢を発射
@@ -871,7 +908,14 @@ function releaseArrow(releaseX?: number, releaseY?: number) {
   // チャージゲージを0に戻す
   const chargeGaugeBar = document.getElementById('chargeGaugeBar')
   if (chargeGaugeBar) {
-    chargeGaugeBar.style.height = '0%'
+    chargeGaugeBar.style.clipPath = 'inset(100% 0 0 0)'
+  }
+  
+  // レティクルの円のサイズをリセット
+  const reticleCircle = document.querySelector('.reticle-circle')
+  if (reticleCircle instanceof HTMLElement) {
+    reticleCircle.style.width = '100px'
+    reticleCircle.style.height = '100px'
   }
   
   // 矢の発射音（前半のみ再生）
@@ -920,7 +964,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   // 左クリックでチャージ開始
   if (e.button === 0) {
     e.preventDefault()
-    startCharging()
+    startCharging(e.clientX, e.clientY)
     return
   }
   
@@ -933,11 +977,15 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   }
 })
 
-// デバッグモードの場合のみカメラ操作を有効化
-if (debugMode) {
-  renderer.domElement.addEventListener('mousemove', (e) => {
-    if (!isDragging) return
-    
+// マウス移動イベント（レティクル追従とデバッグモードのカメラ操作）
+renderer.domElement.addEventListener('mousemove', (e) => {
+  // ゲーム中は常にレティクルを追従
+  if (gameStarted && !gameEnded) {
+    updateReticlePosition(e.clientX, e.clientY)
+  }
+  
+  // デバッグモードの場合のみカメラ操作を有効化
+  if (debugMode && isDragging) {
     const deltaX = e.clientX - previousMousePosition.x
     const deltaY = e.clientY - previousMousePosition.y
     
@@ -953,8 +1001,8 @@ if (debugMode) {
     updateCameraRotation()
     
     previousMousePosition = { x: e.clientX, y: e.clientY }
-  })
-}
+  }
+})
 
 renderer.domElement.addEventListener('mouseup', (e) => {
   // 左クリックでチャージ終了（発射）
@@ -980,6 +1028,19 @@ if (debugMode) {
   
   // カーソルスタイルの初期設定
   renderer.domElement.style.cursor = 'grab'
+} else {
+  // PCのときはマウスカーソルを非表示
+  renderer.domElement.style.cursor = 'none'
+}
+
+if (debugMode) {
+  renderer.domElement.addEventListener('mouseleave', () => {
+    isDragging = false
+    renderer.domElement.style.cursor = 'grab'
+  })
+  
+  // カーソルスタイルの初期設定
+  renderer.domElement.style.cursor = 'grab'
 }
 
 // タッチイベント（モバイル用）
@@ -988,13 +1049,18 @@ renderer.domElement.addEventListener('touchstart', (e) => {
   e.preventDefault()
   if (e.touches.length === 1) {
     // タップでチャージ開始
-    startCharging()
+    const touch = e.touches[0]
+    startCharging(touch.clientX, touch.clientY)
   }
 })
 
 renderer.domElement.addEventListener('touchmove', (e) => {
   e.preventDefault()
-  // タッチ移動中はチャージを継続（何もしない）
+  // ゲーム中は常にレティクルを追従
+  if (gameStarted && !gameEnded && e.touches.length > 0) {
+    const touch = e.touches[0]
+    updateReticlePosition(touch.clientX, touch.clientY)
+  }
 })
 
 renderer.domElement.addEventListener('touchend', (e) => {
@@ -1072,7 +1138,18 @@ function animate() {
     // チャージゲージを更新
     const chargeGaugeBar = document.getElementById('chargeGaugeBar')
     if (chargeGaugeBar) {
-      chargeGaugeBar.style.height = (chargeAmount * 100) + '%'
+      const clipPercent = 100 - (chargeAmount * 100)
+      chargeGaugeBar.style.clipPath = `inset(${clipPercent}% 0 0 0)`
+    }
+    
+    // レティクルの円のサイズを更新（初期100px、最大チャージで20px）
+    const reticleCircle = document.querySelector('.reticle-circle')
+    if (reticleCircle instanceof HTMLElement) {
+      const minSize = 20 // 最大チャージ時のサイズ
+      const maxSize = 100 // 初期状態のサイズ
+      const size = maxSize - (chargeAmount * (maxSize - minSize))
+      reticleCircle.style.width = size + 'px'
+      reticleCircle.style.height = size + 'px'
     }
   }
   
@@ -1324,6 +1401,8 @@ function startGame() {
   isCharging = false // チャージをリセット
   chargeAmount = 0
   startScreen.style.display = 'none'
+  // レティクルを画面中央に初期化
+  updateReticlePosition(window.innerWidth / 2, window.innerHeight / 2)
   // カメラを初期位置にリセット
   camera.position.set(0, 1, 0)
   // カメラ回転と速度をリセット
@@ -1447,6 +1526,9 @@ soundToggleButton.addEventListener('click', () => {
 // ボタンイベント
 startButton.addEventListener('click', startGame)
 restartButton.addEventListener('click', restartGame)
+
+// レティクルを画面中央に初期化
+updateReticlePosition(window.innerWidth / 2, window.innerHeight / 2)
 
 // アニメーション開始
 animate()
