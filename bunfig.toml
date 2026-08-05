@@ -1,0 +1,3 @@
+[install]
+minimum_release_age = 10080
+exact = true
